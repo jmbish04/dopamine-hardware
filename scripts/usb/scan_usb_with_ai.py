@@ -16,7 +16,7 @@ GATEWAY_NAME = os.getenv("CLOUDFLARE_GATEWAY_NAME", "default-gateway")
 
 # FIX 1: Use a valid Cloudflare Workers AI model tag.
 # "gpt-oss-120b" does not exist. We use Llama 3.1 8B Instruct here as a reliable default.
-AI_MODEL = "@cf/meta/llama-3.1-8b-instruct"
+AI_MODEL = "@cf/openai/gpt-oss-120b"
 
 def run_cmd(command):
     """Executes a shell command safely."""
@@ -56,7 +56,7 @@ def main():
     
     # FIX 2: Target the 'workers-ai' provider endpoint directly.
     # The OpenAI SDK automatically appends '/chat/completions' to this base URL.
-    BASE_URL = f"https://gateway.ai.cloudflare.com/v1/{ACCOUNT_ID}/{GATEWAY_NAME}/workers-ai"
+    BASE_URL = f"https://gateway.ai.cloudflare.com/v1/{ACCOUNT_ID}/{GATEWAY_NAME}/compat/chat/completions"
     
     client = OpenAI(
         base_url=BASE_URL,
