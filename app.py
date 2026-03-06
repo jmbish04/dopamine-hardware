@@ -27,11 +27,11 @@ BIND_PORT = int(os.environ.get("DOPAMINE_BIND_PORT", "5000"))
 
 # Allowlist of supported printer devices (vendor_id, product_id)
 # Add your specific printer models here
-ALLOWED_PRINTERS = [
+ALLOWED_PRINTERS = (
     (0x04B8, 0x0202),  # Epson TM-T88V
     (0x04B8, 0x0E03),  # Epson TM-T20
     (0x0519, 0x0003),  # Star Micronics
-]
+)
 
 # Use the first printer in the allowlist as default
 DEFAULT_VENDOR_ID, DEFAULT_PRODUCT_ID = ALLOWED_PRINTERS[0]
