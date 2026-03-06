@@ -9,8 +9,11 @@ source .venv/bin/activate
 pip install evdev
 
 # 4. Add it to requirements.txt
-echo "evdev==1.7.0" >> requirements.txt
+echo "evdev" >> requirements.txt
 
 # 5. Install requirements
 pip install -U pip
 pip install -r requirements.txt
+
+# 6. Reload hardware rules
+sudo udevadm control --reload-rules && sudo udevadm trigger

@@ -5,4 +5,7 @@ gunicorn==21.2.0
 websocket-client
 requests
 pyusb==1.2.1
-evdev
+evdev==1.7.0
+setuptools<70.0.0
+openai
+python-dotenv
