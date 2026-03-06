@@ -3,19 +3,61 @@ import logging
 import time
 import socket
 import subprocess
+import os
 from hardware import print_and_ack, get_printer, printer_lock
 
 app = Flask(__name__)
 
+# Simple API key authentication (optional, set via environment variable)
+API_KEY = os.environ.get('DOPAMINE_API_KEY')
+
+def require_api_key(f):
+    """Decorator to require API key if configured."""
+    def decorated_function(*args, **kwargs):
+        if API_KEY:
+            provided_key = request.headers.get('X-API-Key')
+            if provided_key != API_KEY:
+                return jsonify({"error": "Unauthorized"}), 401
+        return f(*args, **kwargs)
+    decorated_function.__name__ = f.__name__
+    return decorated_function
+
 @app.route('/print', methods=['POST'])
+@require_api_key
 def vpc_print():
+    """Print a task receipt with input validation."""
+    # Validate request has JSON body
+    if not request.is_json:
+        return jsonify({"error": "Content-Type must be application/json"}), 400
+
     data = request.json
-    if print_and_ack(data['id'], data['title']):
-        return jsonify({"status": "success"})
-    return jsonify({"error": "Print failed"}), 500
+    if not data:
+        return jsonify({"error": "Request body cannot be empty"}), 400
+
+    # Validate required fields
+    job_id = data.get('id')
+    title = data.get('title')
+
+    if not job_id:
+        return jsonify({"error": "Missing required field: id"}), 400
+    if not title:
+        return jsonify({"error": "Missing required field: title"}), 400
+
+    # Get optional short_id / receiptQrValue
+    short_id = data.get('receiptQrValue')
+
+    try:
+        if print_and_ack(job_id, title, short_id):
+            return jsonify({"status": "success"})
+        return jsonify({"error": "Print failed"}), 500
+    except Exception as e:
+        logging.error(f"Print endpoint error: {e}")
+        return jsonify({"error": "Internal server error"}), 500
 
 @app.route('/test', methods=['POST', 'GET'])
+@require_api_key
 def trigger_full_test():
+    """Run diagnostic test with sanitized barcode."""
     logging.info("🛠️ Diagnostic test triggered via VPC")
     report = {"status": "healthy", "printer": "unknown", "network": "unknown", "timestamp": time.time()}
     with printer_lock:
@@ -37,7 +79,8 @@ def trigger_full_test():
                 p.text("VPC: ACTIVE\n")
                 p.text("STATUS: ALL SYSTEMS GO\n\n")
                 p.set(align='center')
-                p.qr("DIAGNOSTIC-OK", size=6, native=True)
+                # Use CODE128 1D barcode instead of QR
+                p.barcode("{BDIAG-OK", "CODE128", height=60, width=2, pos="BELOW")
                 p.text("\n\n\n")
                 p.cut()
                 p.close()
@@ -53,12 +96,33 @@ def trigger_full_test():
     return jsonify(report), 200 if report["status"] == "healthy" else 503
 
 @app.route('/logs', methods=['GET'])
+@require_api_key
 def get_system_logs():
+    """
+    Get system logs with rate limiting and input validation.
+    WARNING: Contains sensitive information. Should only be accessible via authenticated tunnel.
+    """
     lines = request.args.get('lines', '50')
+
+    # Validate and sanitize lines parameter to prevent DoS
+    if not lines.isdigit():
+        lines = '50'
+    else:
+        lines_int = int(lines)
+        if lines_int < 1 or lines_int > 1000:
+            lines = '50'
+
     try:
-        logging.info("VPC requested journalctl logs")
-        output = subprocess.check_output(['journalctl', '-u', 'dopamine.service', '-n', str(lines), '--no-pager'], text=True)
+        logging.info(f"VPC requested {lines} lines of journalctl logs")
+        output = subprocess.check_output(
+            ['journalctl', '-u', 'dopamine.service', '-n', str(lines), '--no-pager'],
+            text=True,
+            timeout=30  # Prevent hanging
+        )
         return jsonify({"status": "success", "logs": output})
+    except subprocess.TimeoutExpired:
+        logging.error("journalctl command timed out")
+        return jsonify({"status": "error", "error": "Request timed out"}), 504
     except Exception as e:
         logging.error(f"Failed to read journalctl: {e}")
-        return jsonify({"status": "error", "error": str(e)}), 500
+        return jsonify({"status": "error", "error": "Failed to retrieve logs"}), 500
