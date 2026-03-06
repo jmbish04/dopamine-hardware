@@ -14,8 +14,9 @@ ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID")
 API_TOKEN = os.getenv("CLOUDFLARE_AI_GATEWAY_TOKEN") or os.getenv("CLOUDFLARE_API_TOKEN")
 GATEWAY_NAME = os.getenv("CLOUDFLARE_GATEWAY_NAME", "default-gateway")
 
-# Standard Cloudflare Workers AI model tag
-AI_MODEL = "workers-ai/@cf/openai/gpt-oss-120b"
+# FIX 1: Use a valid Cloudflare Workers AI model tag.
+# "gpt-oss-120b" does not exist. We use Llama 3.1 8B Instruct here as a reliable default.
+AI_MODEL = "@cf/meta/llama-3.1-8b-instruct"
 
 def run_cmd(command):
     """Executes a shell command safely."""
@@ -53,9 +54,9 @@ def main():
 
     print(f"🧠 Routing hardware state through AI Gateway ({GATEWAY_NAME}) to {AI_MODEL}...")
     
-    # Target the Workers AI gateway endpoint directly. 
+    # FIX 2: Target the 'workers-ai' provider endpoint directly.
     # The OpenAI SDK automatically appends '/chat/completions' to this base URL.
-    BASE_URL = f"https://gateway.ai.cloudflare.com/v1/{ACCOUNT_ID}/{GATEWAY_NAME}/compat"
+    BASE_URL = f"https://gateway.ai.cloudflare.com/v1/{ACCOUNT_ID}/{GATEWAY_NAME}/workers-ai"
     
     client = OpenAI(
         base_url=BASE_URL,
@@ -81,14 +82,12 @@ def main():
         response = client.chat.completions.create(
             model=AI_MODEL,
             messages=messages,
-            # Fallback to universally supported json_object instead of strict json_schema
             response_format={"type": "json_object"},
             temperature=0.2,
         )
         
         content = response.choices[0].message.content
         
-        # Defensive check against silent API refusals or malformed schemas
         if not content:
             print("⚠️ API returned an empty content block. Raw SDK Response:")
             print(response.model_dump_json(indent=2))
