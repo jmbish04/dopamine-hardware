@@ -6,7 +6,10 @@ After=network.target
 User=pi
 WorkingDirectory=/home/pi/dopamine-hardware
 Environment="PATH=/home/pi/.local/bin:/usr/bin"
-ExecStart=/usr/bin/python3 app.py
+# Use Gunicorn production WSGI server instead of Flask development server
+# Set DOPAMINE_API_KEY environment variable for authentication
+# Set DOPAMINE_BIND_HOST to override default 127.0.0.1 (e.g., 0.0.0.0 for network access)
+ExecStart=/usr/bin/python3 -m gunicorn --workers 2 --bind ${DOPAMINE_BIND_HOST:-127.0.0.1}:5000 app:app
 Restart=always
 RestartSec=3
 

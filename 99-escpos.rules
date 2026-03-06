@@ -1,24 +1,16 @@
 # Udev rules for ESC/POS USB receipt printers
-# Grants the 'lp' group access to ESC/POS-compatible USB devices
+# Grants the 'lp' group access to specific ESC/POS-compatible USB devices
 # so that the dopamine-hardware bridge can communicate with them
 # without requiring root privileges.
 #
 # To reload these rules:
 #   sudo udevadm control --reload-rules && sudo udevadm trigger
 
-# Common ESC/POS receipt printer vendors
-SUBSYSTEM=="usb", ATTRS{idVendor}=="04b8", GROUP="lp", MODE="0664"
-SUBSYSTEM=="usb", ATTRS{idVendor}=="0519", GROUP="lp", MODE="0664"
-SUBSYSTEM=="usb", ATTRS{idVendor}=="1fc9", GROUP="lp", MODE="0664"
-SUBSYSTEM=="usb", ATTRS{idVendor}=="20d1", GROUP="lp", MODE="0664"
-SUBSYSTEM=="usb", ATTRS{idVendor}=="0dd4", GROUP="lp", MODE="0664"
-SUBSYSTEM=="usb", ATTRS{idVendor}=="0525", GROUP="lp", MODE="0664"
-
-# Epson printers
+# Epson printers (specific models only)
 SUBSYSTEM=="usb", ATTRS{idVendor}=="04b8", ATTRS{idProduct}=="0202", GROUP="lp", MODE="0664"
 SUBSYSTEM=="usb", ATTRS{idVendor}=="04b8", ATTRS{idProduct}=="0e03", GROUP="lp", MODE="0664"
 
-# Star Micronics printers
+# Star Micronics printers (specific models only)
 SUBSYSTEM=="usb", ATTRS{idVendor}=="0519", ATTRS{idProduct}=="0003", GROUP="lp", MODE="0664"
 
 # Generic USB-to-serial adapters used by some ESC/POS printers
