@@ -190,7 +190,7 @@ def scanner_worker():
 
 # --- 1. Audio Synthesis (Add near the top of app.py) ---
 def generate_sounds():
-    """Synthesizes local beep sounds so no external files are needed."""
+    """Synthesizes distinct local sounds for different task states."""
     def make_wav(filename, freq, duration):
         if os.path.exists(filename): return
         sample_rate = 44100
@@ -202,16 +202,31 @@ def generate_sounds():
                 val = int(32767.0 * math.sin(2.0 * math.pi * freq * i / sample_rate))
                 f.writeframesraw(struct.pack('<h', val))
 
-    make_wav('task_beep.wav', 880, 0.1)     # High short beep (Task Scan)
-    make_wav('action_beep.wav', 523, 0.15)  # Lower longer beep (Action Scan)
-    make_wav('error_beep.wav', 150, 0.3)    # Low buzz (Error)
+    # 1. PLAY (Task Started): High, energetic, quick beep
+    make_wav('started.wav', 880, 0.15)     
+    
+    # 2. PAUSE (Task Paused): Mid-tone, slightly longer, relaxed
+    make_wav('paused.wav', 440, 0.2)       
+    
+    # 3. DONE (Task Complete): High C, long triumphant beep
+    make_wav('done.wav', 1046, 0.4)        
+    
+    # 4. ERROR: Low, angry buzz
+    make_wav('error.wav', 150, 0.4)        
 
 generate_sounds()
 
-def play_sound(sound_type):
-    """Plays sound without blocking the thread"""
-    file = "task_beep.wav" if sound_type == "task" else "action_beep.wav"
-    subprocess.Popen(['aplay', '-q', file])
+def play_sound(action_type):
+    """Plays the specific sound without blocking the thread, ignoring missing hardware errors."""
+    files = {
+        "play": "started.wav",
+        "pause": "paused.wav",
+        "done": "done.wav",
+        "error": "error.wav"
+    }
+    file = files.get(action_type, "started.wav")
+    # stderr=subprocess.DEVNULL hides the ALSA error if you unplug the speaker
+    subprocess.Popen(['aplay', '-q', file], stderr=subprocess.DEVNULL)
 
 
 # --- 2. Update Scanner Worker (Replace existing scanner_worker) ---
