@@ -5,3 +5,4 @@ gunicorn==21.2.0
 websocket-client
 requests
 pyusb==1.2.1
+escpos
