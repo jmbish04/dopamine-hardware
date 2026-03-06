@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import subprocess
 import requests
 
@@ -34,19 +35,18 @@ def main():
     lsusb_out = run_cmd("lsusb")
     
     print("📄 Reading configuration files...")
-    # Attempt to read the rules file (handling potential naming variations)
     rules_content = read_file("/etc/udev/rules.d/99-epson-printer.rules")
     if "Error reading" in rules_content:
         rules_content = read_file("/etc/udev/rules.d/99-escpos.rules")
         
-    # Attempt to read the monolithic app.py or fallback to modularized hardware.py
     app_content = read_file("app.py")
     if "Error reading" in app_content:
         app_content = read_file("hardware.py")
 
     print(f"🧠 Sending hardware state to {AI_MODEL}...")
     
-    url = f"https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/ai/run/{AI_MODEL}"
+    # Utilizing the OpenAI-compatible Chat Completions endpoint for gpt-oss-120b
+    url = f"https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/ai/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
         "Content-Type": "application/json"
@@ -62,6 +62,7 @@ def main():
     )
     
     payload = {
+        "model": AI_MODEL,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"<lsusb_output>\n{lsusb_out}\n</lsusb_output>\n\n<udev_rules>\n{rules_content}\n</udev_rules>\n\n<app_code>\n{app_content}\n</app_code>"}
@@ -73,10 +74,23 @@ def main():
         print(f"❌ Cloudflare API Error: {response.status_code} - {response.text}")
         sys.exit(1)
         
-    result_text = response.json().get("result", {}).get("response", "").strip()
+    response_data = response.json()
     
+    # Safely parse the OpenAI-compatible response schema
+    if "choices" in response_data and len(response_data["choices"]) > 0:
+        result_text = response_data["choices"][0].get("message", {}).get("content", "").strip()
+    else:
+        # Fallback to standard Cloudflare format if the endpoint normalizes it
+        result_text = response_data.get("result", {}).get("response", "").strip()
+        
     print("\n✨ --- AI Hardware Analysis --- ✨\n")
-    print(result_text)
+    
+    if not result_text:
+        print("⚠️ Received an empty response body from the AI. Raw API Payload:")
+        print(json.dumps(response_data, indent=2))
+    else:
+        print(result_text)
+        
     print("\n✨ ---------------------------- ✨\n")
 
 if __name__ == "__main__":
