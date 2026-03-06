@@ -221,7 +221,7 @@ def scanner_worker():
     time.sleep(3) 
     
     devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
-    scanner = next((d for d in devices if "keyboard" in d.name.lower() or "scanner" in d.name.lower() or "tera" in d.name.lower()), None)
+    scanner = next((d for d in devices if "keyboard" in d.name.lower() or "scanner" in d.name.lower() or "tera" in d.name.lower() or "usb adapter" in d.name.lower()), None)
             
     if not scanner:
         logging.error("❌ Barcode scanner not found. Retrying in 30s...")
