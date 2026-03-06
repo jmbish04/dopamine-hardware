@@ -16,7 +16,7 @@ GATEWAY_NAME = os.getenv("CLOUDFLARE_GATEWAY_NAME", "default-gateway")
 
 # FIX 1: Use a valid Cloudflare Workers AI model tag.
 # "gpt-oss-120b" does not exist. We use Llama 3.1 8B Instruct here as a reliable default.
-AI_MODEL = "@cf/openai/gpt-oss-120b"
+AI_MODEL = "worker-ai/@cf/openai/gpt-oss-120b"
 
 def run_cmd(command):
     """Executes a shell command safely."""
