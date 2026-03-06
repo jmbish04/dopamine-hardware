@@ -1,8 +1,6 @@
 import requests
-import json
 import time
 
-# Replace with your actual Worker URL
 WORKER_URL = "https://dopamine.hacolby.workers.dev"
 
 def run_local_diagnostics():
@@ -33,6 +31,7 @@ def run_local_diagnostics():
             print("✅ Report successfully logged to Cloudflare D1.")
         else:
             print(f"❌ Failed to log to Cloudflare. Status: {cf_res.status_code}")
+            print(cf_res.text)
     except Exception as e:
         print(f"❌ Network error reaching Cloudflare: {e}")
 
