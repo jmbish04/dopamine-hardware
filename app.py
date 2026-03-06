@@ -190,29 +190,43 @@ def scanner_worker():
 
 # --- 1. Audio Synthesis (Add near the top of app.py) ---
 def generate_sounds():
-    """Synthesizes distinct local sounds for different task states."""
-    def make_wav(filename, freq, duration):
+    """Synthesizes complex 16-bit melodies for UI feedback."""
+    def make_melody(filename, notes):
         if os.path.exists(filename): return
         sample_rate = 44100
         with wave.open(filename, 'w') as f:
             f.setnchannels(1)
             f.setsampwidth(2)
             f.setframerate(sample_rate)
-            for i in range(int(sample_rate * duration)):
-                val = int(32767.0 * math.sin(2.0 * math.pi * freq * i / sample_rate))
-                f.writeframesraw(struct.pack('<h', val))
+            for freq, duration in notes:
+                # Play the note for 85% of the duration, and silence for 15% 
+                # This creates that distinct "staccato" separation between notes
+                note_samples = int(sample_rate * (duration * 0.85))
+                rest_samples = int(sample_rate * (duration * 0.15))
+                
+                for i in range(note_samples):
+                    val = int(32767.0 * math.sin(2.0 * math.pi * freq * i / sample_rate))
+                    f.writeframesraw(struct.pack('<h', val))
+                for i in range(rest_samples):
+                    f.writeframesraw(struct.pack('<h', 0))
 
-    # 1. PLAY (Task Started): High, energetic, quick beep
-    make_wav('started.wav', 880, 0.15)     
+    # 1. PLAY: A quick, ascending double-chime (Booting up)
+    make_melody('started.wav', [(440.0, 0.1), (659.25, 0.2)]) # A4 -> E5
     
-    # 2. PAUSE (Task Paused): Mid-tone, slightly longer, relaxed
-    make_wav('paused.wav', 440, 0.2)       
+    # 2. PAUSE: A descending double-chime (Powering down)
+    make_melody('paused.wav', [(659.25, 0.1), (440.0, 0.2)])  # E5 -> A4
     
-    # 3. DONE (Task Complete): High C, long triumphant beep
-    make_wav('done.wav', 1046, 0.4)        
+    # 3. DONE: The Antigravity "Dah Dah Dah DAAHHH" Success Fanfare
+    # Three quick C5 notes, followed by a long, triumphant A5
+    make_melody('done.wav', [
+        (523.25, 0.15), 
+        (523.25, 0.15), 
+        (523.25, 0.15), 
+        (880.00, 0.5)
+    ])        
     
-    # 4. ERROR: Low, angry buzz
-    make_wav('error.wav', 150, 0.4)        
+    # 4. ERROR: Two harsh, low buzzes
+    make_melody('error.wav', [(150.0, 0.2), (150.0, 0.3)])        
 
 generate_sounds()
 
