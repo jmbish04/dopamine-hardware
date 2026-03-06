@@ -11,7 +11,7 @@ load_dotenv()
 # --- Configuration ---
 ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID")
 # Uses your existing CLOUDFLARE_API_TOKEN as the Gateway authentication token
-API_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN") 
+API_TOKEN = os.getenv("CLOUDFLARE_AI_GATEWAY_TOKEN") or os.getenv("CLOUDFLARE_API_TOKEN")
 GATEWAY_NAME = os.getenv("CLOUDFLARE_GATEWAY_NAME", "default-gateway")
 
 # Universal Routing: Prefix the standard Cloudflare model tag with 'workers-ai/'
