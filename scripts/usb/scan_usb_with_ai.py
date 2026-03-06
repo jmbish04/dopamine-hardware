@@ -14,7 +14,7 @@ ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID")
 API_TOKEN = os.getenv("CLOUDFLARE_AI_GATEWAY_TOKEN") or os.getenv("CLOUDFLARE_API_TOKEN")
 GATEWAY_NAME = os.getenv("CLOUDFLARE_GATEWAY_NAME", "default-gateway")
 
-# Universal Routing: Prefix the standard Cloudflare model tag with 'workers-ai/'
+# Standard Cloudflare Workers AI model tag
 AI_MODEL = "workers-ai/@cf/openai/gpt-oss-120b"
 
 def run_cmd(command):
@@ -51,44 +51,25 @@ def main():
     if "Error reading" in app_content:
         app_content = read_file("hardware.py")
 
-    print(f"🧠 Routing hardware state through AI Gateway ({GATEWAY_NAME}) via Universal Routing to {AI_MODEL}...")
+    print(f"🧠 Routing hardware state through AI Gateway ({GATEWAY_NAME}) to {AI_MODEL}...")
     
-    # Point the SDK at the generic /openai Gateway endpoint
-    # The SDK will automatically append /chat/completions to this cleanly
-    BASE_URL = f"https://gateway.ai.cloudflare.com/v1/{ACCOUNT_ID}/{GATEWAY_NAME}/compat"
+    # Target the Workers AI gateway endpoint directly. 
+    # The OpenAI SDK automatically appends '/chat/completions' to this base URL.
+    BASE_URL = f"https://gateway.ai.cloudflare.com/v1/{ACCOUNT_ID}/{GATEWAY_NAME}/workers-ai"
     
     client = OpenAI(
         base_url=BASE_URL,
         api_key=API_TOKEN,
     )
     
-    # Strict JSON Schema defining exactly what the model is allowed to return
-    response_schema = {
-        "type": "object",
-        "properties": {
-            "analysis": {
-                "type": "string",
-                "description": "A concise explanation of the hardware state and if VIDs/PIDs match."
-            },
-            "mismatch_found": {
-                "type": "boolean",
-                "description": "True if lsusb output contradicts the rules or python code."
-            },
-            "required_modifications": {
-                "type": "string",
-                "description": "Markdown diff of the exact line changes needed. Empty if no mismatch."
-            }
-        },
-        "required": ["analysis", "mismatch_found", "required_modifications"],
-        "additionalProperties": False,
-    }
-    
     system_prompt = (
         "You are a Codex Senior Engineer diagnosing a hardware bridge. Analyze the provided `lsusb` output "
         "against the user's `udev` rules and Python application code. "
         "Identify if the Vendor ID (VID) and Product ID (PID) for the connected thermal printer and barcode scanner "
         "match the hardcoded values in the files. "
-        "Return a structured JSON object matching the provided schema."
+        "You MUST return your response as a valid JSON object strictly containing three keys: "
+        "'analysis' (string explaining the state), 'mismatch_found' (boolean true/false), and 'required_modifications' "
+        "(string containing markdown diffs, or empty if no mismatch)."
     )
     
     messages = [
@@ -100,12 +81,20 @@ def main():
         response = client.chat.completions.create(
             model=AI_MODEL,
             messages=messages,
-            response_format={"type": "json_schema", "json_schema": {"name": "hardware_diagnostic", "schema": response_schema, "strict": True}},
+            # Fallback to universally supported json_object instead of strict json_schema
+            response_format={"type": "json_object"},
             temperature=0.2,
         )
         
-        # The OpenAI SDK handles the payload extraction natively
-        structured_json = json.loads(response.choices[0].message.content)
+        content = response.choices[0].message.content
+        
+        # Defensive check against silent API refusals or malformed schemas
+        if not content:
+            print("⚠️ API returned an empty content block. Raw SDK Response:")
+            print(response.model_dump_json(indent=2))
+            sys.exit(1)
+            
+        structured_json = json.loads(content)
         
         print("\n✨ --- AI Hardware Analysis --- ✨\n")
         print(f"Diagnosis: {structured_json.get('analysis')}\n")
