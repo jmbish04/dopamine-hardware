@@ -29,5 +29,5 @@ def telemetry_worker():
                 "network": "vpc-tunnel"
             }
             requests.post(f"{WORKER_URL}/api/printer/telemetry", json=cf_payload, timeout=3)
-        except Exception:
-            pass
+        except requests.exceptions.RequestException as e:
+            logging.warning(f"Failed to send telemetry to cloud: {e}")
