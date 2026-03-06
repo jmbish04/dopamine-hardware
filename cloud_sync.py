@@ -1,6 +1,7 @@
 import json
 import time
 import logging
+import traceback
 import requests
 import websocket
 from config import WS_URL, WORKER_URL
@@ -18,11 +19,15 @@ def run_websocket():
                     print_and_ack(data)
                 except (json.JSONDecodeError, KeyError) as e:
                     logging.error(f"⚠️ [WS] Invalid message format: {e}")
+                    logging.debug(traceback.format_exc())
                 except Exception as e:
                     logging.error(f"⚠️ [WS] Error processing message: {e}")
+                    logging.error(f"⚠️ [WS] Full traceback:\n{traceback.format_exc()}")
 
             def on_error(ws, error):
                 logging.error(f"⚠️ [WS] Error: {error}")
+                if hasattr(error, '__traceback__'):
+                    logging.error(f"⚠️ [WS] Error traceback:\n{''.join(traceback.format_tb(error.__traceback__))}")
 
             def on_close(ws, close_status_code, close_msg):
                 logging.warning(f"⚠️ [WS] Disconnected (status: {close_status_code}). Reconnecting in 5s...")

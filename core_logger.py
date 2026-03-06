@@ -27,3 +27,6 @@ def setup_logger():
 
     logging.getLogger("werkzeug").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
+
+    # Configure websocket logger to show errors with full details
+    logging.getLogger("websocket").setLevel(logging.ERROR)
