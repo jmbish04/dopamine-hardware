@@ -105,7 +105,7 @@ def print_text():
             "cut":  true          // optional, default true
         }
     """
-    data = request.get_json(force=True, silent=True) or {}
+    data = request.get_json(silent=True) or {}
     text = data.get("text", "")
     cut = data.get("cut", True)
 
