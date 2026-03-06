@@ -6,20 +6,21 @@ try:
     p.set(align='center', font='a', width=2, height=2, bold=True)
     p.text("🧠🧠 DOPAMINE CONTROL PAD\n\n")
     
-    # 1. PLAY BUTTON
     p.set(align='center', width=1, height=1)
+    
+    # 1. PLAY BUTTON (Notice the {B before CMD)
     p.text("--- START / RESUME ---\n")
-    p.barcode("CMD:PLAY", "CODE128", height=80, width=3, pos="BELOW")
+    p.barcode("{BCMD:PLAY", "CODE128", height=80, width=3, pos="BELOW")
     p.text("\n\n")
     
-    # 2. PAUSE BUTTON
+    # 2. PAUSE BUTTON (Notice the {B before CMD)
     p.text("--- PAUSE / BREAK ---\n")
-    p.barcode("CMD:PAUS", "CODE128", height=80, width=3, pos="BELOW")
+    p.barcode("{BCMD:PAUS", "CODE128", height=80, width=3, pos="BELOW")
     p.text("\n\n")
     
-    # 3. DONE BUTTON
+    # 3. DONE BUTTON (Notice the {B before CMD)
     p.text("--- COMPLETE TASK ---\n")
-    p.barcode("CMD:DONE", "CODE128", height=80, width=3, pos="BELOW")
+    p.barcode("{BCMD:DONE", "CODE128", height=80, width=3, pos="BELOW")
     p.text("\n\n\n\n")
     
     p.cut()
