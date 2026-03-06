@@ -121,6 +121,62 @@ def run_rest_polling():
             pass # Fail silently, try again in 15 seconds
         time.sleep(15)
 
+# ==========================================
+# TIER 4: Unit Testing
+# ==========================================
+@app.route('/test', methods=['POST', 'GET'])
+def trigger_full_test():
+    """
+    Diagnostic endpoint. The Cloudflare Worker calls this via VPC to demand a hardware test.
+    """
+    logging.info("🛠️ Diagnostic test triggered via VPC")
+    
+    report = {
+        "status": "healthy",
+        "printer": "unknown",
+        "network": "unknown",
+        "timestamp": time.time()
+    }
+    
+    # 1. Test Printer Hardware
+    with printer_lock:
+        p = get_printer()
+        if p:
+            try:
+                p.hw("INIT")
+                p.set(align='center', font='a', width=2, height=2, bold=True)
+                p.text("DIAGNOSTIC TEST\n")
+                p.set(align='center', font='a', width=1, height=1, bold=False)
+                p.text("-" * 32 + "\n\n")
+                
+                # Get local IP for debugging
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                local_ip = s.getsockname()[0]
+                s.close()
+
+                p.set(align='left')
+                p.text(f"IP: {local_ip}\n")
+                p.text("VPC: ACTIVE\n")
+                p.text("STATUS: ALL SYSTEMS GO\n\n")
+                
+                p.set(align='center')
+                p.qr("DIAGNOSTIC-OK", size=6, native=True)
+                p.text("\n\n\n")
+                p.cut()
+                p.close()
+                report["printer"] = "online"
+            except Exception as e:
+                logging.error(f"Diagnostic print failed: {e}")
+                report["printer"] = f"error: {str(e)}"
+                report["status"] = "degraded"
+        else:
+            report["printer"] = "disconnected"
+            report["status"] = "degraded"
+
+    # 2. Return report to Cloudflare Worker
+    return jsonify(report), 200 if report["status"] == "healthy" else 503
+
 if __name__ == '__main__':
     logging.info("Starting Dopamine Hardware Bridge (VPC + WS + REST)")
     
