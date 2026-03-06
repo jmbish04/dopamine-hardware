@@ -13,12 +13,9 @@ def run_websocket():
             def on_message(ws, message):
                 try:
                     data = json.loads(message)
-                    logging.info(f"⚡ [WS] Received job: {data.get('receiptQrValue', data.get('id', 'unknown'))}")
-                    print_and_ack(
-                        data.get('id', ''),
-                        data.get('title', 'Unknown Task'),
-                        data.get('receiptQrValue')
-                    )
+                    job_id = data.get('receiptQrValue') or data.get('taskId') or data.get('id', 'unknown')
+                    logging.info(f"⚡ [WS] Received job: {job_id}")
+                    print_and_ack(data)
                 except (json.JSONDecodeError, KeyError) as e:
                     logging.error(f"⚠️ [WS] Invalid message format: {e}")
                 except Exception as e:
@@ -48,13 +45,9 @@ def run_rest_polling():
             if res.status_code == 200:
                 jobs = res.json()
                 for job in jobs:
-                    job_id = job.get('receiptQrValue', job.get('id', 'unknown'))
+                    job_id = job.get('receiptQrValue') or job.get('taskId') or job.get('id', 'unknown')
                     logging.info(f"🔄 [POLL] Found missed job: {job_id}")
-                    print_and_ack(
-                        job.get('id', ''),
-                        job.get('title', 'Unknown Task'),
-                        job.get('receiptQrValue')
-                    )
+                    print_and_ack(job)
         except requests.exceptions.RequestException as e:
             logging.warning(f"[POLL] Failed to fetch pending jobs: {e}")
         except Exception as e:

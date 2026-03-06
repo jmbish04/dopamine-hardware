@@ -9,6 +9,7 @@ import math
 import subprocess
 import os
 import re
+from datetime import datetime
 from escpos.printer import Usb
 from config import VENDOR_ID, PRODUCT_ID, WORKER_URL
 
@@ -91,19 +92,53 @@ def _sanitize_escpos_input(text):
     # Limit length to prevent abuse
     return text[:512]
 
-def print_and_ack(job_id, title, short_id=None):
-    """Print a task receipt with sanitized inputs."""
+def _format_timestamp(timestamp):
+    """Format a Unix timestamp or ISO string to readable date."""
+    if not timestamp:
+        return ""
+
+    try:
+        # Try parsing as Unix timestamp (seconds or milliseconds)
+        if isinstance(timestamp, (int, float)):
+            if timestamp > 10000000000:  # Milliseconds
+                timestamp = timestamp / 1000
+            dt = datetime.fromtimestamp(timestamp)
+            return dt.strftime("%Y-%m-%d %H:%M")
+        # Try parsing as ISO string
+        elif isinstance(timestamp, str):
+            # Handle ISO format
+            if 'T' in timestamp:
+                dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                return dt.strftime("%Y-%m-%d %H:%M")
+            return timestamp
+    except Exception:
+        return str(timestamp)
+
+    return str(timestamp)
+
+def print_and_ack(data):
+    """
+    Print a task receipt with all available data.
+
+    Args:
+        data: Dictionary containing task information. Expected fields:
+            - id (required): Job ID for tracking
+            - taskId: Task identifier
+            - title: Task title
+            - description: Task description
+            - dueDate: Due date timestamp
+            - status: Task status
+            - createdAt: Creation timestamp
+            - receiptQrValue: Short ID for barcode
+            - Any other fields will be printed as key:value
+    """
+    job_id = data.get('id')
+    if not job_id:
+        logging.error("print_and_ack called without job ID")
+        return False
+
     if job_id in printed_jobs:
         return True
-
-    # Fallback if Cloudflare didn't send a short ID
-    if not short_id:
-        short_id = job_id
-
-    # Sanitize all inputs
-    job_id_sanitized = _sanitize_escpos_input(str(job_id))
-    title_sanitized = _sanitize_escpos_input(str(title))
-    short_id_sanitized = _sanitize_escpos_input(str(short_id))
 
     with printer_lock:
         if job_id in printed_jobs:
@@ -113,21 +148,78 @@ def print_and_ack(job_id, title, short_id=None):
             return False
         try:
             p.hw("INIT")
+
+            # Header
             p.set(align='center', font='a', width=2, height=2, bold=True)
-            p.text("ONION TASKER\n")
+            p.text("DOPAMINE\n")
             p.set(align='center', font='a', width=1, height=1, bold=False)
             p.text("-" * 32 + "\n\n")
 
-            p.set(align='left')
-            p.text(f"ID: {short_id_sanitized}\n")
-            p.set(bold=True)
-            p.text(f"{title_sanitized}\n\n")
-            p.set(bold=False)
+            # Well-known fields in specific order
+            p.set(align='left', font='a', bold=False)
 
+            # Track which fields we've already printed
+            printed_fields = set()
+
+            # Print taskId if available
+            task_id = data.get('taskId') or data.get('receiptQrValue') or job_id
+            task_id_clean = _sanitize_escpos_input(str(task_id))
+            p.set(bold=True)
+            p.text(f"Task ID: {task_id_clean}\n")
+            p.set(bold=False)
+            printed_fields.update(['taskId', 'receiptQrValue', 'id'])
+
+            # Print title
+            if data.get('title'):
+                title_clean = _sanitize_escpos_input(str(data['title']))
+                p.text(f"Title: {title_clean}\n")
+                printed_fields.add('title')
+
+            # Print description (allow multiline)
+            if data.get('description'):
+                desc_clean = _sanitize_escpos_input(str(data['description']))
+                p.text(f"Description: {desc_clean}\n")
+                printed_fields.add('description')
+
+            # Print status
+            if data.get('status'):
+                status_clean = _sanitize_escpos_input(str(data['status']))
+                p.text(f"Status: {status_clean}\n")
+                printed_fields.add('status')
+
+            # Print due date
+            if data.get('dueDate'):
+                due_date_formatted = _format_timestamp(data['dueDate'])
+                due_date_clean = _sanitize_escpos_input(due_date_formatted)
+                p.text(f"Due: {due_date_clean}\n")
+                printed_fields.add('dueDate')
+
+            # Print created at
+            if data.get('createdAt'):
+                created_formatted = _format_timestamp(data['createdAt'])
+                created_clean = _sanitize_escpos_input(created_formatted)
+                p.text(f"Created: {created_clean}\n")
+                printed_fields.add('createdAt')
+
+            # Print any remaining fields
+            remaining_fields = {k: v for k, v in data.items() if k not in printed_fields and v is not None}
+            if remaining_fields:
+                p.text("\n")
+                for key, value in sorted(remaining_fields.items()):
+                    # Format key nicely (camelCase to Title Case)
+                    key_formatted = re.sub(r'([A-Z])', r' \1', key).title().strip()
+                    value_str = str(value)
+                    # Handle timestamps
+                    if 'date' in key.lower() or 'time' in key.lower() or key.lower().endswith('at'):
+                        value_str = _format_timestamp(value)
+                    value_clean = _sanitize_escpos_input(value_str)[:100]  # Limit value length
+                    p.text(f"{key_formatted}: {value_clean}\n")
+
+            # Barcode
+            p.text("\n")
             p.set(align='center')
             # 1D Barcode Logic: {{B forces Character Subset B to allow alphanumeric text
-            # Sanitize barcode data to only allow alphanumeric and basic characters
-            safe_barcode = ''.join(c for c in short_id_sanitized if c.isalnum() or c in '-_')[:48]
+            safe_barcode = ''.join(c for c in task_id_clean if c.isalnum() or c in '-_')[:48]
             if safe_barcode:
                 p.barcode(f"{{B{safe_barcode}", "CODE128", height=80, width=3, pos="BELOW")
             p.text("\n\n\n")
@@ -136,7 +228,7 @@ def print_and_ack(job_id, title, short_id=None):
             p.close()
 
             printed_jobs.add(job_id)
-            logging.info(f"✅ Printed task: {short_id_sanitized}")
+            logging.info(f"✅ Printed task: {task_id_clean}")
             requests.post(f"{WORKER_URL}/api/printer/ack", json={"job_id": job_id}, timeout=5)
             return True
         except Exception as e:

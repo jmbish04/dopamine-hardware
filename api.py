@@ -34,20 +34,12 @@ def vpc_print():
     if not data:
         return jsonify({"error": "Request body cannot be empty"}), 400
 
-    # Validate required fields
-    job_id = data.get('id')
-    title = data.get('title')
-
-    if not job_id:
+    # Validate required field (id)
+    if not data.get('id'):
         return jsonify({"error": "Missing required field: id"}), 400
-    if not title:
-        return jsonify({"error": "Missing required field: title"}), 400
-
-    # Get optional short_id / receiptQrValue
-    short_id = data.get('receiptQrValue')
 
     try:
-        if print_and_ack(job_id, title, short_id):
+        if print_and_ack(data):
             return jsonify({"status": "success"})
         return jsonify({"error": "Print failed"}), 500
     except Exception as e:
