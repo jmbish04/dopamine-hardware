@@ -11,7 +11,7 @@ def run_websocket():
         data = json.loads(message)
         logging.info(f"⚡ [WS] Received job: {data['id']}")
         print_and_ack(data['id'], data['title'])
-    def on_error(ws, error): pass
+    def on_error(ws, error): logging.error(f"⚠️ [WS] Error: {error}")
     def on_close(ws, close_status_code, close_msg):
         logging.warning("⚠️ [WS] Disconnected. Reconnecting in 5s...")
         time.sleep(5)
