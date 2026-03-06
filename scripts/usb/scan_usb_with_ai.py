@@ -55,7 +55,7 @@ def main():
     
     # Point the SDK at the generic /openai Gateway endpoint
     # The SDK will automatically append /chat/completions to this cleanly
-    BASE_URL = f"https://gateway.ai.cloudflare.com/v1/{ACCOUNT_ID}/{GATEWAY_NAME}/openai"
+    BASE_URL = f"https://gateway.ai.cloudflare.com/v1/{ACCOUNT_ID}/{GATEWAY_NAME}/compat"
     
     client = OpenAI(
         base_url=BASE_URL,
