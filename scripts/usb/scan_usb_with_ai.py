@@ -55,7 +55,7 @@ def main():
     
     # Target the Workers AI gateway endpoint directly. 
     # The OpenAI SDK automatically appends '/chat/completions' to this base URL.
-    BASE_URL = f"https://gateway.ai.cloudflare.com/v1/{ACCOUNT_ID}/{GATEWAY_NAME}/workers-ai"
+    BASE_URL = f"https://gateway.ai.cloudflare.com/v1/{ACCOUNT_ID}/{GATEWAY_NAME}/compat"
     
     client = OpenAI(
         base_url=BASE_URL,
