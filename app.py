@@ -54,7 +54,8 @@ def require_api_key(f):
     def decorated_function(*args, **kwargs):
         if API_KEY:
             provided_key = request.headers.get("X-API-Key")
-            if not provided_key or provided_key != API_KEY:
+            import hmac
+            if not provided_key or not hmac.compare_digest(provided_key, API_KEY):
                 logger.warning("Unauthorized access attempt from %s", request.remote_addr)
                 return jsonify({"error": "Unauthorized"}), 401
         return f(*args, **kwargs)
