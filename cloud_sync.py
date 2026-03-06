@@ -12,19 +12,28 @@ def run_websocket():
     while True:  # Use iterative loop instead of recursion
         try:
             def on_message(ws, message):
+                """Handle incoming WebSocket messages with comprehensive error handling."""
                 try:
                     data = json.loads(message)
+
+                    # Check if this is a print job (has id field) or just an info message
+                    if 'id' not in data and 'taskId' not in data:
+                        # This is not a print job, just log it and skip
+                        logging.debug(f"⚡ [WS] Received non-print message: {data}")
+                        return
+
                     job_id = data.get('receiptQrValue') or data.get('taskId') or data.get('id', 'unknown')
-                    logging.info(f"⚡ [WS] Received job: {job_id}")
+                    logging.info(f"⚡ [WS] Received print job: {job_id}")
                     print_and_ack(data)
-                except (json.JSONDecodeError, KeyError) as e:
-                    logging.error(f"⚠️ [WS] Invalid message format: {e}")
+                except json.JSONDecodeError as e:
+                    logging.error(f"⚠️ [WS] Invalid JSON: {e}")
                     logging.debug(traceback.format_exc())
                 except Exception as e:
                     logging.error(f"⚠️ [WS] Error processing message: {e}")
                     logging.error(f"⚠️ [WS] Full traceback:\n{traceback.format_exc()}")
 
             def on_error(ws, error):
+                """Handle WebSocket errors with detailed logging."""
                 logging.error(f"⚠️ [WS] Error: {error}")
                 if hasattr(error, '__traceback__'):
                     logging.error(f"⚠️ [WS] Error traceback:\n{''.join(traceback.format_tb(error.__traceback__))}")
