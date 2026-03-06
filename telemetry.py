@@ -1,4 +1,5 @@
 import sqlite3
+import logging
 import requests
 from core_logger import log_queue
 from config import DB_PATH, WORKER_URL
@@ -24,8 +25,8 @@ def telemetry_worker():
         try:
             cf_payload = {
                 "timestamp": log_entry['timestamp'],
-                "status": log_entry['level'],
-                "printer": log_entry['message'],
+                "level": log_entry['level'],
+                "message": log_entry['message'],
                 "network": "vpc-tunnel"
             }
             requests.post(f"{WORKER_URL}/api/printer/telemetry", json=cf_payload, timeout=3)
