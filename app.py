@@ -225,8 +225,8 @@ def play_sound(action_type):
         "error": "error.wav"
     }
     file = files.get(action_type, "started.wav")
-    # stderr=subprocess.DEVNULL hides the ALSA error if you unplug the speaker
-    subprocess.Popen(['aplay', '-q', file], stderr=subprocess.DEVNULL)
+    # Force audio through Card 3 (Logitech USB) using the plughw translator
+    subprocess.Popen(['aplay', '-D', 'plughw:3,0', '-q', file], stderr=subprocess.DEVNULL)
 
 
 # --- 2. Update Scanner Worker (Replace existing scanner_worker) ---
