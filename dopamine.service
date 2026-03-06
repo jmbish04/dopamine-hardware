@@ -3,14 +3,9 @@ Description=Dopamine Hardware Bridge
 After=network.target
 
 [Service]
-User=pi
+User=hacolby
 WorkingDirectory=/home/pi/dopamine-hardware
-Environment="PATH=/home/pi/.local/bin:/usr/bin"
-# Use Gunicorn production WSGI server instead of Flask development server
-# Set DOPAMINE_API_KEY environment variable for authentication
-# Set DOPAMINE_BIND_HOST to override default 127.0.0.1 (e.g., 0.0.0.0 for network access)
-# Set DOPAMINE_BIND_PORT to override default 5000
-ExecStart=/bin/sh -c 'exec /usr/bin/python3 -m gunicorn --workers 2 --bind ${DOPAMINE_BIND_HOST:-127.0.0.1}:${DOPAMINE_BIND_PORT:-5000} app:app'
+ExecStart=/home/pi/dopamine-hardware/.venv/bin/python app.py
 Restart=always
 RestartSec=3
 
