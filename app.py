@@ -7,6 +7,7 @@ import websocket
 import sqlite3
 import subprocess
 import socket
+import evdev  # <-- New Import
 from queue import Queue
 from flask import Flask, request, jsonify
 from escpos.printer import Usb
@@ -19,11 +20,9 @@ PRODUCT_ID = 0x0e28
 WORKER_URL = "https://dopamine.hacolby.workers.dev" 
 WS_URL = "wss://dopamine.hacolby.workers.dev/api/printer/ws"
 
-# --- Advanced Dual-Logging System ---
 log_queue = Queue()
 
 def telemetry_worker():
-    """Background thread: Writes logs to local SQLite and pushes to Cloudflare D1"""
     conn = sqlite3.connect('/home/pi/dopamine-hardware/dopamine_logs.db')
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS system_logs
@@ -37,22 +36,20 @@ def telemetry_worker():
         log_entry = log_queue.get()
         if log_entry is None: break
         
-        # 1. Save to local SQLite
         c.execute("INSERT INTO system_logs (timestamp, level, message) VALUES (?, ?, ?)",
                   (log_entry['timestamp'], log_entry['level'], log_entry['message']))
         conn.commit()
 
-        # 2. Push to Cloudflare (Maps to your Zod HardwareReportSchema)
         try:
             cf_payload = {
                 "timestamp": log_entry['timestamp'],
-                "status": log_entry['level'],      # Maps to 'status' in Zod
-                "printer": log_entry['message'],   # Maps to 'printer' in Zod
+                "status": log_entry['level'],      
+                "printer": log_entry['message'],   
                 "network": "vpc-tunnel"
             }
             requests.post(f"{WORKER_URL}/api/printer/telemetry", json=cf_payload, timeout=3)
         except Exception:
-            pass # Suppress network errors in the logging thread
+            pass
 
 class DualLoggerHandler(logging.Handler):
     def emit(self, record):
@@ -62,7 +59,6 @@ class DualLoggerHandler(logging.Handler):
             "message": self.format(record)
         })
 
-# Setup the root logger
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
@@ -75,13 +71,10 @@ dual_handler = DualLoggerHandler()
 dual_handler.setFormatter(formatter)
 logger.addHandler(dual_handler)
 
-# Suppress noisy dependency logs
 logging.getLogger("werkzeug").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
-# Start logging thread
 threading.Thread(target=telemetry_worker, daemon=True).start()
-
 
 # --- Hardware Logic ---
 printed_jobs = set()
@@ -126,6 +119,70 @@ def print_and_ack(job_id, title):
             if p: p.close()
             return False
 
+# ==========================================
+# NEW: Barcode Scanner Thread (Tera D5100)
+# ==========================================
+def scanner_worker():
+    """Listens globally for USB barcode scanner keystrokes"""
+    logging.info("🔍 Searching for USB Barcode Scanner...")
+    
+    # Give the OS a moment to enumerate USB devices on boot
+    time.sleep(3) 
+    
+    devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
+    scanner = None
+    for dev in devices:
+        name = dev.name.lower()
+        # Tera scanners usually register as generic keyboards or scanners
+        if "keyboard" in name or "scanner" in name or "tera" in name or "hid" in name:
+            scanner = dev
+            break
+            
+    if not scanner:
+        logging.error("❌ Barcode scanner not found in /dev/input/. Retrying in 30s...")
+        time.sleep(30)
+        return scanner_worker()
+        
+    logging.info(f"✅ Scanner connected: {scanner.name} at {scanner.path}")
+    buffer = ""
+    
+    try:
+        # Exclusively grab the scanner so keystrokes don't leak into the Pi's main terminal
+        scanner.grab()
+        
+        for event in scanner.read_loop():
+            if event.type == evdev.ecodes.EV_KEY:
+                data = evdev.categorize(event)
+                if data.keystate == 1:  # Key Down Event
+                    keycode = str(data.keycode)
+                    
+                    if keycode == 'KEY_ENTER':
+                        if len(buffer) > 0:
+                            logging.info(f"📠 Barcode Scanned: {buffer}")
+                            # Send the scanned code up to Cloudflare
+                            try:
+                                requests.post(
+                                    f"{WORKER_URL}/api/printer/scan", 
+                                    json={"scanned_code": buffer}, 
+                                    timeout=5
+                                )
+                            except Exception as e:
+                                logging.error(f"Failed to report scan to Worker: {e}")
+                            buffer = ""
+                    elif keycode.startswith('KEY_'):
+                        # Parse 'KEY_A' -> 'A', 'KEY_1' -> '1'
+                        char = keycode.replace('KEY_', '')
+                        if len(char) == 1: # Ignore SHIFT, CTRL, etc.
+                            buffer += char
+    except Exception as e:
+        logging.error(f"⚠️ Scanner disconnected or error: {e}")
+        try:
+            scanner.ungrab()
+        except:
+            pass
+        time.sleep(5)
+        scanner_worker() # Loop and attempt to reconnect
+
 # --- VPC Endpoints ---
 @app.route('/print', methods=['POST'])
 def vpc_print():
@@ -137,14 +194,7 @@ def vpc_print():
 @app.route('/test', methods=['POST', 'GET'])
 def trigger_full_test():
     logging.info("🛠️ Diagnostic test triggered via VPC")
-    
-    report = {
-        "status": "healthy",
-        "printer": "unknown",
-        "network": "unknown",
-        "timestamp": time.time()
-    }
-    
+    report = {"status": "healthy", "printer": "unknown", "network": "unknown", "timestamp": time.time()}
     with printer_lock:
         p = get_printer()
         if p:
@@ -154,18 +204,15 @@ def trigger_full_test():
                 p.text("DIAGNOSTIC TEST\n")
                 p.set(align='center', font='a', width=1, height=1, bold=False)
                 p.text("-" * 32 + "\n\n")
-                
                 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 s.connect(("8.8.8.8", 80))
                 local_ip = s.getsockname()[0]
                 s.close()
                 report["network"] = local_ip
-
                 p.set(align='left')
                 p.text(f"IP: {local_ip}\n")
                 p.text("VPC: ACTIVE\n")
                 p.text("STATUS: ALL SYSTEMS GO\n\n")
-                
                 p.set(align='center')
                 p.qr("DIAGNOSTIC-OK", size=6, native=True)
                 p.text("\n\n\n")
@@ -180,7 +227,6 @@ def trigger_full_test():
         else:
             report["printer"] = "disconnected"
             report["status"] = "degraded"
-
     return jsonify(report), 200 if report["status"] == "healthy" else 503
 
 @app.route('/logs', methods=['GET'])
@@ -188,10 +234,7 @@ def get_system_logs():
     lines = request.args.get('lines', '50')
     try:
         logging.info("VPC requested journalctl logs")
-        output = subprocess.check_output(
-            ['journalctl', '-u', 'dopamine.service', '-n', str(lines), '--no-pager'], 
-            text=True
-        )
+        output = subprocess.check_output(['journalctl', '-u', 'dopamine.service', '-n', str(lines), '--no-pager'], text=True)
         return jsonify({"status": "success", "logs": output})
     except Exception as e:
         logging.error(f"Failed to read journalctl: {e}")
@@ -228,6 +271,7 @@ def run_rest_polling():
 
 if __name__ == '__main__':
     logging.info("🚀 Starting Dopamine Hardware Bridge")
+    threading.Thread(target=scanner_worker, daemon=True).start()
     threading.Thread(target=run_websocket, daemon=True).start()
     threading.Thread(target=run_rest_polling, daemon=True).start()
     run_flask()
