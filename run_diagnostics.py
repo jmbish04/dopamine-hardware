@@ -3,7 +3,7 @@ import json
 import time
 
 # Replace with your actual Worker URL
-WORKER_URL = "https://your-worker-domain.workers.dev"
+WORKER_URL = "https://dopamine.hacolby.workers.dev"
 
 def run_local_diagnostics():
     print("Initiating local hardware diagnostics...")
