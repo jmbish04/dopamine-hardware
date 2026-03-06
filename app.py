@@ -11,7 +11,7 @@ import sqlite3
 import subprocess
 import os
 import socket
-import evdev  # <-- New Import
+import evdev
 from queue import Queue
 from flask import Flask, request, jsonify
 from escpos.printer import Usb
@@ -80,115 +80,8 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 threading.Thread(target=telemetry_worker, daemon=True).start()
 
-# --- Hardware Logic ---
-printed_jobs = set()
-printer_lock = threading.Lock()
 
-def get_printer():
-    try:
-        # Removed the profile="TM-T20III" argument to prevent the KeyError
-        return Usb(VENDOR_ID, PRODUCT_ID)
-    except Exception as e:
-        logging.error(f"USB Printer error: {repr(e)}")
-        return None
-
-def print_and_ack(job_id, title):
-    if job_id in printed_jobs: return True
-    with printer_lock:
-        if job_id in printed_jobs: return True
-        p = get_printer()
-        if not p: return False
-        try:
-            p.hw("INIT")
-            p.set(align='center', font='a', width=2, height=2, bold=True)
-            p.text("ONION TASKER\n")
-            p.set(align='center', font='a', width=1, height=1, bold=False)
-            p.text("-" * 32 + "\n\n")
-            p.set(align='left')
-            p.text(f"ID: {job_id}\n")
-            p.set(bold=True)
-            p.text(f"{title}\n\n")
-            p.set(bold=False)
-            p.set(align='center')
-            p.qr(job_id, size=8, native=True)
-            p.text("\n\n\n")
-            p.cut()
-            p.close()
-            
-            printed_jobs.add(job_id)
-            logging.info(f"✅ Printed task: {job_id}")
-            requests.post(f"{WORKER_URL}/api/printer/ack", json={"job_id": job_id}, timeout=5)
-            return True
-        except Exception as e:
-            logging.error(f"Print hardware failed: {e}")
-            if p: p.close()
-            return False
-
-# ==========================================
-# Barcode Scanner Thread (Tera D5100)
-# ==========================================
-def scanner_worker():
-    """Listens globally for USB barcode scanner keystrokes"""
-    logging.info("🔍 Searching for USB Barcode Scanner...")
-    
-    # Give the OS a moment to enumerate USB devices on boot
-    time.sleep(3) 
-    
-    devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
-    scanner = None
-    for dev in devices:
-        name = dev.name.lower()
-        # Tera scanners usually register as generic keyboards or scanners
-        if "keyboard" in name or "scanner" in name or "tera" in name or "hid" in name:
-            scanner = dev
-            break
-            
-    if not scanner:
-        logging.error("❌ Barcode scanner not found in /dev/input/. Retrying in 30s...")
-        time.sleep(30)
-        return scanner_worker()
-        
-    logging.info(f"✅ Scanner connected: {scanner.name} at {scanner.path}")
-    buffer = ""
-    
-    try:
-        # Exclusively grab the scanner so keystrokes don't leak into the Pi's main terminal
-        scanner.grab()
-        
-        for event in scanner.read_loop():
-            if event.type == evdev.ecodes.EV_KEY:
-                data = evdev.categorize(event)
-                if data.keystate == 1:  # Key Down Event
-                    keycode = str(data.keycode)
-                    
-                    if keycode == 'KEY_ENTER':
-                        if len(buffer) > 0:
-                            logging.info(f"📠 Barcode Scanned: {buffer}")
-                            # Send the scanned code up to Cloudflare
-                            try:
-                                requests.post(
-                                    f"{WORKER_URL}/api/printer/scan", 
-                                    json={"scanned_code": buffer}, 
-                                    timeout=5
-                                )
-                            except Exception as e:
-                                logging.error(f"Failed to report scan to Worker: {e}")
-                            buffer = ""
-                    elif keycode.startswith('KEY_'):
-                        # Parse 'KEY_A' -> 'A', 'KEY_1' -> '1'
-                        char = keycode.replace('KEY_', '')
-                        if len(char) == 1: # Ignore SHIFT, CTRL, etc.
-                            buffer += char
-    except Exception as e:
-        logging.error(f"⚠️ Scanner disconnected or error: {e}")
-        try:
-            scanner.ungrab()
-        except:
-            pass
-        time.sleep(5)
-        scanner_worker() # Loop and attempt to reconnect
-
-# --- 1. Audio Synthesis (Add near the top of app.py) ---
+# --- 1. Audio Synthesis ---
 def generate_sounds():
     """Synthesizes complex 16-bit melodies for UI feedback."""
     def make_melody(filename, notes):
@@ -217,7 +110,6 @@ def generate_sounds():
     make_melody('paused.wav', [(659.25, 0.1), (440.0, 0.2)])  # E5 -> A4
     
     # 3. DONE: The Antigravity "Dah Dah Dah DAAHHH" Success Fanfare
-    # Three quick C5 notes, followed by a long, triumphant A5
     make_melody('done.wav', [
         (523.25, 0.15), 
         (523.25, 0.15), 
@@ -243,7 +135,60 @@ def play_sound(action_type):
     subprocess.Popen(['aplay', '-D', 'plughw:3,0', '-q', file], stderr=subprocess.DEVNULL)
 
 
-# --- 2. Update Scanner Worker (Replace existing scanner_worker) ---
+# --- 2. Hardware Printing Logic ---
+printed_jobs = set()
+printer_lock = threading.Lock()
+
+def get_printer():
+    try:
+        return Usb(VENDOR_ID, PRODUCT_ID)
+    except Exception as e:
+        logging.error(f"USB Printer error: {repr(e)}")
+        return None
+
+def print_and_ack(job_id, title, short_id=None):
+    if job_id in printed_jobs: return True
+    
+    # Fallback if Cloudflare didn't send a short ID
+    if not short_id:
+        short_id = job_id 
+        
+    with printer_lock:
+        if job_id in printed_jobs: return True
+        p = get_printer()
+        if not p: return False
+        try:
+            p.hw("INIT")
+            p.set(align='center', font='a', width=2, height=2, bold=True)
+            p.text("ONION TASKER\n")
+            p.set(align='center', font='a', width=1, height=1, bold=False)
+            p.text("-" * 32 + "\n\n")
+            
+            p.set(align='left')
+            p.text(f"ID: {short_id}\n")
+            p.set(bold=True)
+            p.text(f"{title}\n\n")
+            p.set(bold=False)
+            
+            p.set(align='center')
+            # 1D Barcode Logic: {{B forces Character Subset B to allow alphanumeric text
+            p.barcode(f"{{B{short_id}", "CODE128", height=80, width=3, pos="BELOW")
+            p.text("\n\n\n")
+            
+            p.cut()
+            p.close()
+            
+            printed_jobs.add(job_id)
+            logging.info(f"✅ Printed task: {short_id}")
+            requests.post(f"{WORKER_URL}/api/printer/ack", json={"job_id": job_id}, timeout=5)
+            return True
+        except Exception as e:
+            logging.error(f"Print hardware failed: {e}")
+            if p: p.close()
+            return False
+
+
+# --- 3. Barcode Scanner Thread (Tera D5100) ---
 def scanner_worker():
     """Listens globally for USB barcode scanner keystrokes"""
     logging.info("🔍 Searching for USB Barcode Scanner...")
@@ -293,9 +238,11 @@ def scanner_worker():
                                 play_sound("error")
                                 logging.error(f"Failed to report scan: {e}")
                             buffer = ""
-                    # Handle Shift combinations (like the colon in CMD:)
+                    # Handle Shift combinations (like the colon in CMD: or dashes in TSK-)
                     elif keycode == 'SEMICOLON':
                         buffer += ':'
+                    elif keycode == 'MINUS':
+                        buffer += '-'
                     elif len(keycode) == 1:
                         buffer += keycode
     except Exception as e:
@@ -303,11 +250,12 @@ def scanner_worker():
         time.sleep(5)
         scanner_worker()
 
+
 # --- VPC Endpoints ---
 @app.route('/print', methods=['POST'])
 def vpc_print():
     data = request.json
-    if print_and_ack(data['id'], data['title']):
+    if print_and_ack(data['id'], data['title'], data.get('receiptQrValue')):
         return jsonify({"status": "success"})
     return jsonify({"error": "Print failed"}), 500
 
@@ -334,7 +282,7 @@ def trigger_full_test():
                 p.text("VPC: ACTIVE\n")
                 p.text("STATUS: ALL SYSTEMS GO\n\n")
                 p.set(align='center')
-                p.qr("DIAGNOSTIC-OK", size=6, native=True)
+                p.barcode("{BDIAG-OK", "CODE128", height=60, width=2, pos="BELOW")
                 p.text("\n\n\n")
                 p.cut()
                 p.close()
@@ -367,8 +315,8 @@ def run_flask():
 def run_websocket():
     def on_message(ws, message):
         data = json.loads(message)
-        logging.info(f"⚡ [WS] Received job: {data['id']}")
-        print_and_ack(data['id'], data['title'])
+        logging.info(f"⚡ [WS] Received job: {data.get('receiptQrValue', data['id'])}")
+        print_and_ack(data['id'], data.get('title', 'Unknown Task'), data.get('receiptQrValue'))
     def on_error(ws, error): pass
     def on_close(ws, close_status_code, close_msg):
         logging.warning("⚠️ [WS] Disconnected. Reconnecting in 5s...")
@@ -383,8 +331,8 @@ def run_rest_polling():
             res = requests.get(f"{WORKER_URL}/api/printer/pending", timeout=10)
             if res.status_code == 200:
                 for job in res.json():
-                    logging.info(f"🔄 [POLL] Found missed job: {job['id']}")
-                    print_and_ack(job['id'], job['title'])
+                    logging.info(f"🔄 [POLL] Found missed job: {job.get('receiptQrValue', job['id'])}")
+                    print_and_ack(job['id'], job.get('title', 'Unknown Task'), job.get('receiptQrValue'))
         except Exception:
             pass
         time.sleep(15)
