@@ -10,12 +10,9 @@ load_dotenv()
 
 # --- Configuration ---
 ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID")
-# Uses your existing CLOUDFLARE_API_TOKEN as the Gateway authentication token
 API_TOKEN = os.getenv("CLOUDFLARE_AI_GATEWAY_TOKEN") or os.getenv("CLOUDFLARE_API_TOKEN")
 GATEWAY_NAME = os.getenv("CLOUDFLARE_GATEWAY_NAME", "default-gateway")
 
-# FIX 1: Use a valid Cloudflare Workers AI model tag.
-# "gpt-oss-120b" does not exist. We use Llama 3.1 8B Instruct here as a reliable default.
 AI_MODEL = "workers-ai/@cf/openai/gpt-oss-120b"
 
 def run_cmd(command):
@@ -54,14 +51,13 @@ def main():
 
     print(f"🧠 Routing hardware state through AI Gateway ({GATEWAY_NAME}) via Unified API to {AI_MODEL}...")
     
-    # The SDK automatically appends /chat/completions, constructing your exact curl URL
     BASE_URL = f"https://gateway.ai.cloudflare.com/v1/{ACCOUNT_ID}/{GATEWAY_NAME}/compat"
     
     client = OpenAI(
         base_url=BASE_URL,
-        api_key=API_TOKEN, # Satisfies the SDK's internal validation
+        api_key=API_TOKEN,
         default_headers={
-            "cf-aig-authorization": f"Bearer {API_TOKEN}" # Explicit Gateway Auth
+            "cf-aig-authorization": f"Bearer {API_TOKEN}" 
         }
     )
     
@@ -86,9 +82,15 @@ def main():
             messages=messages,
             response_format={"type": "json_object"},
             temperature=0.2,
+            max_tokens=4096 # CRITICAL: Gives the reasoning model enough runway to finish
         )
         
-        content = response.choices[0].message.content
+        message_obj = response.choices[0].message
+        content = message_obj.content
+        
+        # Check if the model exposed its internal Chain of Thought
+        if hasattr(message_obj, 'reasoning_content') and message_obj.reasoning_content:
+            print(f"\n🤔 AI Internal Reasoning:\n{message_obj.reasoning_content.strip()}\n")
         
         if not content:
             print("⚠️ API returned an empty content block. Raw SDK Response:")
