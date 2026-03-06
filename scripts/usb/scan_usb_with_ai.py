@@ -52,15 +52,17 @@ def main():
     if "Error reading" in app_content:
         app_content = read_file("hardware.py")
 
-    print(f"🧠 Routing hardware state through AI Gateway ({GATEWAY_NAME}) to {AI_MODEL}...")
+    print(f"🧠 Routing hardware state through AI Gateway ({GATEWAY_NAME}) via Unified API to {AI_MODEL}...")
     
-    # FIX 2: Target the 'workers-ai' provider endpoint directly.
-    # The OpenAI SDK automatically appends '/chat/completions' to this base URL.
-    BASE_URL = f"https://gateway.ai.cloudflare.com/v1/{ACCOUNT_ID}/{GATEWAY_NAME}/compat/chat/completions"
+    # The SDK automatically appends /chat/completions, constructing your exact curl URL
+    BASE_URL = f"https://gateway.ai.cloudflare.com/v1/{ACCOUNT_ID}/{GATEWAY_NAME}/compat"
     
     client = OpenAI(
         base_url=BASE_URL,
-        api_key=API_TOKEN,
+        api_key=API_TOKEN, # Satisfies the SDK's internal validation
+        default_headers={
+            "cf-aig-authorization": f"Bearer {API_TOKEN}" # Explicit Gateway Auth
+        }
     )
     
     system_prompt = (
