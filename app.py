@@ -258,11 +258,15 @@ def scanner_worker():
                         if len(buffer) > 0:
                             logging.info(f"📠 Barcode Scanned: {buffer}")
                             
-                            # Play specific sound based on scan type
-                            if buffer.startswith("CMD:"):
-                                play_sound("action")
+                            # Trigger the distinct audio cue based on the command
+                            if "PLAY" in buffer:
+                                play_sound("play")
+                            elif "PAUS" in buffer:
+                                play_sound("pause")
+                            elif "DONE" in buffer:
+                                play_sound("done")
                             else:
-                                play_sound("task")
+                                play_sound("play") # Default for regular task scans
                             
                             # Push the scan to the Cloudflare Worker
                             try:
