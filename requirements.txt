@@ -8,3 +8,4 @@ pyusb==1.2.1
 evdev==1.7.0
 escpos
 setuptools<70.0.0
+openai
