@@ -14,10 +14,11 @@ app = Flask(__name__)
 # --- Configuration ---
 VENDOR_ID = 0x04b8
 PRODUCT_ID = 0x0e28
-WORKER_URL = "https://your-worker-domain.workers.dev" # REPLACE WITH YOUR WORKER URL
-WS_URL = "wss://your-worker-domain.workers.dev/api/printer/ws" # REPLACE WITH YOUR WORKER URL
+# Replace with your actual Worker domain once deployed
+WORKER_URL = "https://dopamine.hacolby.workers.dev" 
+WS_URL = "wss://dopamine.hacolby.workers.dev/api/printer/ws"
 
-# State to prevent duplicate printing
+# State lock to prevent duplicate printing across the 3 tiers
 printed_jobs = set()
 printer_lock = threading.Lock()
 
@@ -29,11 +30,14 @@ def get_printer():
         return None
 
 def print_and_ack(job_id, title):
-    """Core print logic. Used by VPC, WebSockets, and REST."""
+    """Core print logic. Safely shared by VPC, WS, and REST threads."""
     if job_id in printed_jobs:
-        return True # Already printed
+        return True
         
     with printer_lock:
+        if job_id in printed_jobs: 
+            return True # Double check inside lock
+            
         p = get_printer()
         if not p:
             return False
@@ -41,14 +45,16 @@ def print_and_ack(job_id, title):
         try:
             p.hw("INIT")
             p.set(align='center', font='a', width=2, height=2, bold=True)
-            p.text("ONION TASKER\n")
-            p.set(align='center', font='a', width=1, height=1)
+            p.text("THE ONION TASKER\n")
+            p.set(align='center', font='a', width=1, height=1, bold=False)
             p.text("-" * 32 + "\n\n")
+            
             p.set(align='left')
             p.text(f"ID: {job_id}\n")
             p.set(bold=True)
-            p.text(f"Task: {title}\n\n")
+            p.text(f"{title}\n\n")
             p.set(bold=False)
+            
             p.set(align='center')
             p.qr(job_id, size=8, native=True)
             p.text("\n\n\n")
@@ -56,10 +62,10 @@ def print_and_ack(job_id, title):
             p.close()
             
             printed_jobs.add(job_id)
-            logging.info(f"Successfully printed: {job_id}")
+            logging.info(f"✅ Printed task: {job_id}")
             
-            # Ack back to the worker
-            requests.post(f"{WORKER_URL}/api/printer/ack", json={"job_id": job_id})
+            # Acknowledge to the Worker so it marks it 'printed' in D1
+            requests.post(f"{WORKER_URL}/api/printer/ack", json={"job_id": job_id}, timeout=5)
             return True
         except Exception as e:
             logging.error(f"Print failed: {e}")
@@ -72,39 +78,32 @@ def print_and_ack(job_id, title):
 @app.route('/print', methods=['POST'])
 def vpc_print():
     data = request.json
-    success = print_and_ack(data['id'], data['title'])
-    if success:
+    if print_and_ack(data['id'], data['title']):
         return jsonify({"status": "success"})
     return jsonify({"error": "Print failed"}), 500
 
 def run_flask():
-    # Cloudflared routes VPC traffic to 8080
     app.run(host='0.0.0.0', port=8080, use_reloader=False)
 
-
 # ==========================================
-# TIER 2: WebSocket Subscriber (Real-time Fallback)
+# TIER 2: WebSocket Subscriber (Real-time)
 # ==========================================
-def on_ws_message(ws, message):
-    data = json.loads(message)
-    logging.info(f"[WS] Received job: {data['id']}")
-    print_and_ack(data['id'], data['title'])
-
-def on_ws_error(ws, error):
-    logging.error(f"[WS] Error: {error}")
-
-def on_ws_close(ws, close_status_code, close_msg):
-    logging.warning("[WS] Disconnected. Reconnecting in 5s...")
-    time.sleep(5)
-    run_websocket()
-
 def run_websocket():
-    ws = websocket.WebSocketApp(WS_URL,
-                                on_message=on_ws_message,
-                                on_error=on_ws_error,
-                                on_close=on_ws_close)
-    ws.run_forever()
+    def on_message(ws, message):
+        data = json.loads(message)
+        logging.info(f"⚡ [WS] Received job: {data['id']}")
+        print_and_ack(data['id'], data['title'])
 
+    def on_error(ws, error):
+        pass
+
+    def on_close(ws, close_status_code, close_msg):
+        logging.warning("⚠️ [WS] Disconnected. Reconnecting in 5s...")
+        time.sleep(5)
+        run_websocket()
+
+    ws = websocket.WebSocketApp(WS_URL, on_message=on_message, on_error=on_error, on_close=on_close)
+    ws.run_forever()
 
 # ==========================================
 # TIER 3: REST Polling (Network Recovery)
@@ -116,21 +115,18 @@ def run_rest_polling():
             if res.status_code == 200:
                 jobs = res.json()
                 for job in jobs:
-                    logging.info(f"[POLL] Found missed job: {job['id']}")
+                    logging.info(f"🔄 [POLL] Found missed job: {job['id']}")
                     print_and_ack(job['id'], job['title'])
-        except Exception as e:
-            pass # Ignore connection errors in the polling loop
-        
-        time.sleep(15) # Poll every 15 seconds
+        except Exception:
+            pass # Fail silently, try again in 15 seconds
+        time.sleep(15)
 
 if __name__ == '__main__':
-    logging.info("Starting Dopamine Hardware Bridge (VPC, WS, REST)")
+    logging.info("Starting Dopamine Hardware Bridge (VPC + WS + REST)")
     
-    # Start WebSockets in a background thread
+    # Start fallbacks in background threads
     threading.Thread(target=run_websocket, daemon=True).start()
-    
-    # Start REST Polling in a background thread
     threading.Thread(target=run_rest_polling, daemon=True).start()
     
-    # Run Flask on the main thread
+    # Run the VPC listener on the main thread
     run_flask()
