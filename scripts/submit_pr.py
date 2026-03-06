@@ -30,7 +30,8 @@ def get_git_state():
     print("📦 Staging local changes...")
     run_cmd("git add .")
     
-    diff = run_cmd("git diff --staged")
+    # Exclude binaries from the diff so we don't blow out the AI context window
+    diff = run_cmd("git diff --staged -- diff-filter=d")
     if not diff:
         print("⚠️ No changes to commit. Exiting.")
         sys.exit(0)
@@ -54,7 +55,6 @@ def generate_pr_content(diff):
         "found in the diff."
     )
     
-    # Utilizing Cloudflare Workers AI Native JSON Schema enforcement
     payload = {
         "messages": [
             {"role": "system", "content": system_prompt},
@@ -78,27 +78,44 @@ def generate_pr_content(diff):
         print(f"❌ Cloudflare API Error: {response.status_code} - {response.text}")
         sys.exit(1)
         
-    result_text = response.json().get("result", {}).get("response", "").strip()
+    response_data = response.json().get("result", {}).get("response", "")
     
-    try:
-        data = json.loads(result_text)
-        title = data["title"]
-        description = data["description"]
+    if isinstance(response_data, dict):
+        data = response_data
+    else:
+        # Fallback: Clean markdown wrappers and parse with strict=False to allow unescaped newlines
+        cleaned = response_data.strip()
+        if cleaned.startswith("```json"):
+            cleaned = cleaned[7:]
+        elif cleaned.startswith("```"):
+            cleaned = cleaned[3:]
+            
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3]
+            
+        cleaned = cleaned.strip()
         
-        print("\n✨ --- AI Generated Pull Request --- ✨")
-        print(f"✨ Title: {title}\n")
-        print(f"✨ Description:\n{description}\n✨ --------------------------------- ✨\n")
-        
-        return title, description
-    except json.JSONDecodeError:
-        print("❌ Failed to parse AI response as JSON. Raw output:")
-        print(result_text)
-        sys.exit(1)
+        try:
+            data = json.loads(cleaned, strict=False)
+        except json.JSONDecodeError as e:
+            print(f"❌ Failed to parse AI response as JSON: {e}")
+            print("Raw output:")
+            print(response_data)
+            sys.exit(1)
+            
+    title = data.get("title", "Automated PR")
+    description = data.get("description", "No description provided.")
+    
+    print("\n✨ --- AI Generated Pull Request --- ✨")
+    print(f"✨ Title: {title}\n")
+    print(f"✨ Description:\n{description}\n✨ --------------------------------- ✨\n")
+    
+    return title, description
 
 def create_github_pr(title, description, head_branch, base_branch):
     """Opens a PR using the GitHub REST API."""
     print(f"📝 Opening Pull Request against '{base_branch}'...")
-    gh_url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/pulls"
+    gh_url = f"[https://api.github.com/repos/](https://api.github.com/repos/){REPO_OWNER}/{REPO_NAME}/pulls"
     gh_headers = {
         "Authorization": f"token {GITHUB_TOKEN}",
         "Accept": "application/vnd.github.v3+json"
