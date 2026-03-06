@@ -34,9 +34,7 @@ def run_websocket():
 
             def on_error(ws, error):
                 """Handle WebSocket errors with detailed logging."""
-                logging.error(f"⚠️ [WS] Error: {error}")
-                if hasattr(error, '__traceback__'):
-                    logging.error(f"⚠️ [WS] Error traceback:\n{''.join(traceback.format_tb(error.__traceback__))}")
+                logging.error(f"⚠️ [WS] Error: {error}", exc_info=True)
 
             def on_close(ws, close_status_code, close_msg):
                 logging.warning(f"⚠️ [WS] Disconnected (status: {close_status_code}). Reconnecting in 5s...")
