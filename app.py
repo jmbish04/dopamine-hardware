@@ -142,7 +142,7 @@ def print_qr():
             "cut":   true  // optional, default true
         }
     """
-    data = request.get_json(force=True, silent=True) or {}
+    data = request.get_json(silent=True) or {}
     qr_data = data.get("data", "")
     size = data.get("size", 10)
     cut = data.get("cut", True)
@@ -150,10 +150,18 @@ def print_qr():
     if not qr_data:
         return jsonify({"error": "data field is required"}), 400
 
+    # Validate QR data length to prevent resource exhaustion
+    if len(qr_data) > 2048:
+        return jsonify({"error": "data field exceeds maximum length of 2048 characters"}), 400
+
     try:
         size = int(size)
     except (TypeError, ValueError):
         return jsonify({"error": "size must be an integer"}), 400
+
+    # Enforce upper bound on size to prevent DoS via excessive memory consumption
+    if size < 1 or size > 20:
+        return jsonify({"error": "size must be between 1 and 20"}), 400
 
     try:
         qr = qrcode.QRCode(box_size=size, border=2)
@@ -192,7 +200,7 @@ def print_receipt():
             "cut":     true            // optional, default true
         }
     """
-    data = request.get_json(force=True, silent=True) or {}
+    data = request.get_json(silent=True) or {}
     title = data.get("title", "")
     items = data.get("items", [])
     total = data.get("total")
