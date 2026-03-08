@@ -177,6 +177,7 @@ def handle_task_event(task_name, action, minutes=None):
     if audio:
         # Play using aplay (Raspberry Pi)
         import subprocess
+        import os
         subprocess.run(["aplay", "-q", audio])
         os.remove(audio)
 ```
