@@ -7,6 +7,7 @@ Demonstrates all available functions with practical examples.
 import os
 import sys
 import logging
+import json
 
 # Add parent directory to path to import worker_ai
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
