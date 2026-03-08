@@ -119,8 +119,8 @@ def handle_task_completion_event(
         # Clean up temp file
         try:
             os.remove(audio_path)
-        except:
-            pass
+        except OSError as e:
+            logger.warning(f"Failed to remove temp file {audio_path}: {e}")
 
         return True
     else:
