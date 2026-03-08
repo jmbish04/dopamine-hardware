@@ -14,6 +14,25 @@ Additionally, it includes specialized functions for:
 - **Task Completion Audio** (`generate_task_completion_audio`) - Context-aware motivational messages for task events
 - **Hardware Diagnostics** (`diagnose_hardware`) - AI-powered hardware configuration validation
 
+## Security Considerations
+
+**Path Traversal Protection:**
+- All file output paths are sanitized to prevent path traversal attacks
+- Files are restricted to `/tmp` directory by default
+- Attempts to write outside allowed directories are logged and blocked
+
+**Prompt Injection:**
+- Functions that pass user input to LLMs include warnings in their docstrings
+- For untrusted input, validate or sanitize prompts before passing to AI functions
+- Consider using restrictive system prompts to limit LLM behavior
+- The `action` parameter in example scripts is validated against a whitelist
+
+**Best Practices:**
+- Never pass unsanitized user input directly to AI functions
+- Validate task names, actions, and other user-controlled strings
+- Use the module's built-in sanitization features
+- Review generated content before executing or displaying it
+
 ## Environment Variables
 
 Set these environment variables before using the module:
@@ -215,7 +234,7 @@ Generate a structured JSON response.
 
 ---
 
-### `generate_voice(text, output_path, speaker, encoding)`
+### `generate_voice(text, output_path, speaker)`
 
 Generate text-to-speech audio using Deepgram Aura-2.
 
@@ -223,11 +242,12 @@ Generate text-to-speech audio using Deepgram Aura-2.
 - `text` (str): Text to synthesize
 - `output_path` (str): Where to save audio (default: "output.mp3")
 - `speaker` (str): Voice to use (default: "luna")
-- `encoding` (str): Audio format (default: "mp3")
 
 **Available Speakers:** luna, hermes, vesta, thalia, perseus, aura, angus, brian, stella, orpheus, helios, zeus, athena, hera, artemis, demeter, ares, hephaestus, aphrodite, apollo, poseidon
 
 **Returns:** `str | None` - Path to audio file or None on failure
+
+**Security Note:** The output_path is sanitized to prevent path traversal attacks. Files are restricted to /tmp directory.
 
 ---
 

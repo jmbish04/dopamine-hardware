@@ -12,6 +12,7 @@ import os
 import sys
 import subprocess
 import logging
+import re
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -24,6 +25,39 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Module-level constants
+_SOUND_EFFECTS = {
+    "complete": "done.wav",
+    "completed": "done.wav",
+    "paused": "paused.wav",
+    "pause": "paused.wav",
+    "started": "started.wav",
+    "start": "started.wav",
+    "resumed": "started.wav",
+    "resume": "started.wav",
+    "error": "error.wav"
+}
+
+
+def _sanitize_action(action: str) -> str:
+    """
+    Sanitize action input to prevent path traversal.
+    Only allows alphanumeric characters and common action names.
+
+    Args:
+        action: The action string
+
+    Returns:
+        Sanitized action string
+
+    Raises:
+        ValueError: If action contains invalid characters
+    """
+    # Allow only alphanumeric, underscore, and dash
+    if not re.match(r'^[a-zA-Z0-9_-]+$', action):
+        raise ValueError(f"Invalid action format: {action}")
+    return action.lower()
 
 
 def play_audio_file(audio_path):
@@ -71,60 +105,57 @@ def handle_task_completion_event(
     Returns:
         bool: Success status
     """
-    logger.info(f"Task event: {task_name} - {action}")
+    try:
+        # Sanitize action to prevent path traversal
+        safe_action = _sanitize_action(action)
+        logger.info(f"Task event: {task_name} - {safe_action}")
 
-    # Map action to sound effect
-    sound_effects = {
-        "complete": "done.wav",
-        "completed": "done.wav",
-        "paused": "paused.wav",
-        "pause": "paused.wav",
-        "started": "started.wav",
-        "start": "started.wav",
-        "resumed": "started.wav",
-        "resume": "started.wav",
-        "error": "error.wav"
-    }
+        sound_file = _SOUND_EFFECTS.get(safe_action, "started.wav")
 
-    action_lower = action.lower()
-    sound_file = sound_effects.get(action_lower, "started.wav")
+        # Step 1: Play sound effect (ding/chime)
+        logger.info(f"Playing sound effect: {sound_file}")
+        if os.path.exists(sound_file):
+            play_audio_file(sound_file)
+        else:
+            logger.warning(f"Sound effect not found: {sound_file}")
 
-    # Step 1: Play sound effect (ding/chime)
-    logger.info(f"Playing sound effect: {sound_file}")
-    if os.path.exists(sound_file):
-        play_audio_file(sound_file)
-    else:
-        logger.warning(f"Sound effect not found: {sound_file}")
+        # Step 2: Generate motivational TTS message
+        # Use safe filename with sanitized action
+        logger.info("Generating AI-powered motivational message...")
+        tts_path = f"/tmp/task_{safe_action}_{os.getpid()}.mp3"
 
-    # Step 2: Generate motivational TTS message
-    logger.info("Generating AI-powered motivational message...")
-    tts_path = f"/tmp/task_{action_lower}_{os.getpid()}.mp3"
+        audio_path = worker_ai.generate_task_completion_audio(
+            task_name=task_name,
+            action=safe_action,
+            minutes_spent=minutes_spent,
+            other_tasks=other_tasks,
+            recommended_next=recommended_next,
+            output_path=tts_path,
+            speaker="luna"
+        )
 
-    audio_path = worker_ai.generate_task_completion_audio(
-        task_name=task_name,
-        action=action,
-        minutes_spent=minutes_spent,
-        other_tasks=other_tasks,
-        recommended_next=recommended_next,
-        output_path=tts_path,
-        speaker="luna"
-    )
+        if audio_path and os.path.exists(audio_path):
+            logger.info(f"Generated TTS: {audio_path}")
 
-    if audio_path and os.path.exists(audio_path):
-        logger.info(f"Generated TTS: {audio_path}")
+            # Step 3: Play motivational message
+            play_audio_file(audio_path)
 
-        # Step 3: Play motivational message
-        play_audio_file(audio_path)
+            # Clean up temp file
+            try:
+                os.remove(audio_path)
+            except OSError as e:
+                logger.warning(f"Failed to remove temp file {audio_path}: {e}")
 
-        # Clean up temp file
-        try:
-            os.remove(audio_path)
-        except OSError as e:
-            logger.warning(f"Failed to remove temp file {audio_path}: {e}")
+            return True
+        else:
+            logger.error("Failed to generate TTS audio")
+            return False
 
-        return True
-    else:
-        logger.error("Failed to generate TTS audio")
+    except ValueError as e:
+        logger.error(f"Invalid input: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"Task completion event failed: {e}")
         return False
 
 
@@ -222,8 +253,8 @@ def example_custom_message():
             play_audio_file(audio_path)
             try:
                 os.remove(audio_path)
-            except:
-                pass
+            except OSError as e:
+                logger.warning(f"Failed to remove temp file {audio_path}: {e}")
         else:
             print("✗ Failed to generate audio")
     else:

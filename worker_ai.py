@@ -7,10 +7,28 @@ import os
 import json
 import logging
 import requests
+from pathlib import Path
 from typing import Optional, Dict, Any, List
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)
+
+# --- Module-level Constants ---
+_SOUND_MAP = {
+    "complete": "done.wav",
+    "completed": "done.wav",
+    "paused": "paused.wav",
+    "pause": "paused.wav",
+    "started": "started.wav",
+    "start": "started.wav",
+    "resumed": "started.wav",
+    "resume": "started.wav"
+}
+
+_TASK_AUDIO_SYSTEM_PROMPT = (
+    "You are a supportive productivity coach. Generate brief, encouraging messages "
+    "for task management events. Keep it under 3 sentences. Be warm, positive, and actionable."
+)
 
 
 # --- Configuration ---
@@ -38,6 +56,54 @@ def _get_config() -> Dict[str, str]:
     }
 
 
+def _sanitize_output_path(output_path: str, default_dir: str = "/tmp") -> str:
+    """
+    Sanitizes output file paths to prevent path traversal attacks.
+
+    Args:
+        output_path: The requested output path
+        default_dir: Default directory for output files
+
+    Returns:
+        Sanitized absolute path within the default directory
+
+    Raises:
+        ValueError: If path traversal is detected
+    """
+    # Resolve to absolute path and normalize
+    path = Path(output_path).resolve()
+
+    # If path is relative or empty, place in default directory
+    if not output_path or output_path.startswith('.'):
+        path = Path(default_dir).resolve() / Path(output_path).name
+
+    # Ensure path is within default directory or /tmp
+    allowed_dirs = [Path(default_dir).resolve(), Path("/tmp").resolve()]
+
+    # Check if path is within any allowed directory
+    try:
+        for allowed_dir in allowed_dirs:
+            if path.is_relative_to(allowed_dir):
+                return str(path)
+    except (ValueError, AttributeError):
+        # Fallback for Python < 3.9 (no is_relative_to)
+        for allowed_dir in allowed_dirs:
+            try:
+                path.relative_to(allowed_dir)
+                return str(path)
+            except ValueError:
+                continue
+
+    # If not in allowed directory, create safe path in default directory
+    safe_filename = Path(output_path).name
+    if not safe_filename or safe_filename in ('.', '..'):
+        safe_filename = "output.mp3"
+
+    safe_path = Path(default_dir).resolve() / safe_filename
+    logger.warning(f"Path traversal attempt blocked: {output_path} -> {safe_path}")
+    return str(safe_path)
+
+
 # --- Text Generation ---
 def generate_text(
     prompt: str,
@@ -48,6 +114,10 @@ def generate_text(
 ) -> Optional[str]:
     """
     Generates text using Cloudflare AI Gateway.
+
+    WARNING: This function passes prompts directly to an LLM. User-supplied input
+    may contain prompt injection attempts. For untrusted input, consider validating
+    or sanitizing the prompt, or using a more restrictive system prompt.
 
     Args:
         prompt: The user prompt/question
@@ -103,6 +173,10 @@ def generate_structured_response(
 ) -> Optional[Dict[str, Any]]:
     """
     Generates a structured JSON response using Cloudflare AI Gateway.
+
+    WARNING: This function passes prompts directly to an LLM. User-supplied input
+    may contain prompt injection attempts. For untrusted input, consider validating
+    or sanitizing the prompt.
 
     Args:
         prompt: The user prompt/question
@@ -169,22 +243,23 @@ def generate_structured_response(
 def generate_voice(
     text: str,
     output_path: str = "output.mp3",
-    speaker: str = "luna",
-    encoding: str = "mp3"
+    speaker: str = "luna"
 ) -> Optional[str]:
     """
     Generates text-to-speech audio using Cloudflare's Deepgram Aura-2 model.
 
     Args:
         text: Text to synthesize
-        output_path: Where to save the audio file
+        output_path: Where to save the audio file (will be sanitized to prevent path traversal)
         speaker: Voice to use (luna, hermes, vesta, thalia, etc.)
-        encoding: Audio format (mp3, wav, flac, etc.)
 
     Returns:
         Path to saved audio file, or None on failure
     """
     try:
+        # Sanitize output path to prevent path traversal attacks
+        safe_output_path = _sanitize_output_path(output_path)
+
         config = _get_config()
         account_id = config['account_id']
         api_token = config['api_token']
@@ -207,12 +282,12 @@ def generate_voice(
         response = requests.post(url, headers=headers, json=payload, stream=True, timeout=30)
 
         if response.status_code == 200:
-            with open(output_path, "wb") as f:
+            with open(safe_output_path, "wb") as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     if chunk:
                         f.write(chunk)
-            logger.info(f"Audio saved to {output_path}")
-            return output_path
+            logger.info(f"Audio saved to {safe_output_path}")
+            return safe_output_path
         else:
             logger.error(f"TTS failed. Status: {response.status_code}, Details: {response.text}")
             return None
@@ -235,13 +310,17 @@ def generate_task_completion_audio(
     """
     Generates motivational audio for task completion events.
 
+    WARNING: This function uses AI to generate messages. User inputs (task_name, action)
+    are passed directly to the LLM. For untrusted input, consider sanitizing task_name
+    and validating action against a whitelist.
+
     Args:
         task_name: Name of the task
         action: Action taken (complete, paused, started, etc.)
         minutes_spent: Time spent on task (for paused/completed)
         other_tasks: List of remaining tasks
         recommended_next: AI recommendation for next task
-        output_path: Where to save the audio file
+        output_path: Where to save the audio file (will be sanitized to prevent path traversal)
         speaker: Voice to use
 
     Returns:
@@ -250,24 +329,6 @@ def generate_task_completion_audio(
     try:
         # Build context-aware message
         action_lower = action.lower()
-
-        # Opening sound effect description (to be played separately)
-        sound_map = {
-            "complete": "done.wav",
-            "completed": "done.wav",
-            "paused": "paused.wav",
-            "pause": "paused.wav",
-            "started": "started.wav",
-            "start": "started.wav",
-            "resumed": "started.wav",
-            "resume": "started.wav"
-        }
-
-        # Generate motivational message using AI
-        system_prompt = (
-            "You are a supportive productivity coach. Generate brief, encouraging messages "
-            "for task management events. Keep it under 3 sentences. Be warm, positive, and actionable."
-        )
 
         if action_lower in ["complete", "completed"]:
             prompt = f"Task '{task_name}' has been completed"
@@ -294,7 +355,7 @@ def generate_task_completion_audio(
         logger.info(f"Generating motivational message for action: {action}")
         message = generate_text(
             prompt=prompt,
-            system_prompt=system_prompt,
+            system_prompt=_TASK_AUDIO_SYSTEM_PROMPT,
             temperature=0.8,
             max_tokens=256
         )
@@ -318,7 +379,7 @@ def generate_task_completion_audio(
 
         if result:
             # Return info about which sound effect to play first
-            sound_file = sound_map.get(action_lower, "started.wav")
+            sound_file = _SOUND_MAP.get(action_lower, "started.wav")
             logger.info(f"Play sound effect '{sound_file}' before audio message")
 
         return result
@@ -338,6 +399,10 @@ def diagnose_hardware(
     """
     AI-powered hardware configuration diagnostics.
     Analyzes USB devices, udev rules, and application code for mismatches.
+
+    WARNING: This function passes system configuration directly to an LLM.
+    While this is typically trusted data, be aware of potential prompt injection
+    if any of the input sources could be compromised.
 
     Args:
         lsusb_output: Output from lsusb command
