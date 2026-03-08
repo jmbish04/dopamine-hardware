@@ -174,7 +174,6 @@ PRODUCT_ID = 0x0e28
 
     if result:
         print("✓ Success! Hardware diagnostic results:")
-        import json
         print(json.dumps(result, indent=2))
         return True
     else:
