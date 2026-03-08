@@ -60,7 +60,6 @@ def test_generate_structured_response():
 
     if result:
         print("✓ Success! Generated structured response:")
-        import json
         print(json.dumps(result, indent=2))
         return True
     else:
