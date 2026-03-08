@@ -6,8 +6,29 @@ import logging
 import time
 import requests
 import evdev
+import threading
 from config import WORKER_URL
-from audio import play_sound
+from audio import play_sound, play_audio_file
+
+def _play_multi_speaker_audio_async(task_name, action):
+    """
+    Asynchronously generate and play multi-speaker task completion audio.
+    This runs in a separate thread to avoid blocking the scanner.
+    """
+    try:
+        # Import here to avoid circular dependency issues
+        import ai
+
+        # Generate two audio files: male confirmation + female motivation
+        audio_paths = ai.generate_multi_speaker_task_audio(task_name, action)
+
+        # Play each audio file sequentially
+        for audio_path in audio_paths:
+            if audio_path:
+                play_audio_file(audio_path)
+
+    except Exception as e:
+        logging.error(f"Failed to generate/play multi-speaker audio: {e}")
 
 def scanner_worker():
     """Listens globally for USB barcode scanner keystrokes"""
@@ -39,23 +60,45 @@ def scanner_worker():
                                 if len(buffer) > 0:
                                     logging.info(f"📠 Barcode Scanned: {buffer}")
 
-                                    # Trigger the distinct audio cue based on the command
+                                    # Determine action type from buffer
+                                    action = None
                                     if "PLAY" in buffer:
                                         play_sound("play")
+                                        action = "started"
                                     elif "PAUS" in buffer:
                                         play_sound("pause")
+                                        action = "paused"
                                     elif "DONE" in buffer:
                                         play_sound("done")
+                                        action = "completed"
                                     else:
                                         play_sound("play") # Default for regular task scans
 
-                                    # Push the scan to the Cloudflare Worker
+                                    # Push the scan to the Cloudflare Worker and get task info
                                     try:
-                                        requests.post(
+                                        response = requests.post(
                                             f"{WORKER_URL}/api/printer/scan",
                                             json={"scanned_code": buffer},
                                             timeout=5
                                         )
+
+                                        # If this was a task action (complete/pause/start) and we got task info back,
+                                        # trigger multi-speaker audio feedback asynchronously
+                                        if action and response.status_code == 200:
+                                            try:
+                                                response_data = response.json()
+                                                task_name = response_data.get('title') or response_data.get('taskId') or 'Unknown Task'
+
+                                                # Start audio generation/playback in background thread
+                                                audio_thread = threading.Thread(
+                                                    target=_play_multi_speaker_audio_async,
+                                                    args=(task_name, action),
+                                                    daemon=True
+                                                )
+                                                audio_thread.start()
+                                            except Exception as e:
+                                                logging.warning(f"Could not trigger multi-speaker audio: {e}")
+
                                     except Exception as e:
                                         play_sound("error")
                                         logging.error(f"Failed to report scan: {e}")

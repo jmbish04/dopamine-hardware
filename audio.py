@@ -7,6 +7,13 @@ import struct
 import math
 import subprocess
 import os
+import logging
+import threading
+
+logger = logging.getLogger(__name__)
+
+# Thread lock for audio playback to prevent overlapping audio
+audio_lock = threading.Lock()
 
 def generate_sounds():
     """Synthesizes complex 16-bit melodies for UI feedback."""
@@ -60,3 +67,46 @@ def play_sound(action_type):
     file = files.get(action_type, "started.wav")
     # Force audio through Card 3 (Logitech USB) using the plughw translator
     subprocess.Popen(['aplay', '-D', 'plughw:3,0', '-q', file], stderr=subprocess.DEVNULL)
+
+def play_audio_file(audio_path):
+    """
+    Plays an audio file using mpg123 (for mp3) or aplay (for wav) with thread safety.
+    Falls back gracefully if audio hardware is not available.
+
+    Args:
+        audio_path: Path to audio file (.mp3 or .wav)
+
+    Returns:
+        bool: True if playback succeeded, False otherwise
+    """
+    with audio_lock:
+        try:
+            if audio_path.lower().endswith('.mp3'):
+                # Use mpg123 for MP3 files
+                cmd = ["mpg123", "-q", audio_path]
+            else:
+                # Use aplay for WAV files, matching the ALSA configuration
+                cmd = ["aplay", "-D", "plughw:3,0", "-q", audio_path]
+
+            subprocess.run(
+                cmd,
+                check=True,
+                capture_output=True,
+                timeout=30
+            )
+            logger.info(f"Played audio: {audio_path}")
+            return True
+        except FileNotFoundError:
+            missing_bin = "mpg123" if audio_path.lower().endswith('.mp3') else "aplay"
+            logger.warning(f"'{missing_bin}' not found - run 'sudo apt-get install {missing_bin} -y'")
+            return False
+        except subprocess.CalledProcessError as e:
+            error_msg = e.stderr.decode('utf-8', errors='ignore').strip() if e.stderr else str(e)
+            logger.error(f"Failed to play audio ({cmd[0]} error): {error_msg}")
+            return False
+        except subprocess.TimeoutExpired:
+            logger.error("Audio playback timed out")
+            return False
+        except Exception as e:
+            logger.error(f"Failed to play audio: {e}")
+            return False

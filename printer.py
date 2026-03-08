@@ -14,6 +14,26 @@ from config import VENDOR_ID, PRODUCT_ID, WORKER_URL
 printed_jobs = set()
 printer_lock = threading.Lock()
 
+def _play_announcement_audio_async(task_name):
+    """
+    Asynchronously generate and play announcement audio for new tasks.
+    This runs in a separate thread to avoid blocking the printer.
+    """
+    try:
+        # Import here to avoid circular dependency issues
+        import ai
+        from audio import play_audio_file
+
+        # Generate announcement audio
+        audio_path = ai.generate_announcement_audio(task_name)
+
+        # Play the audio file
+        if audio_path:
+            play_audio_file(audio_path)
+
+    except Exception as e:
+        logging.error(f"Failed to generate/play announcement audio: {e}")
+
 def get_printer():
     """Initialize USB printer connection."""
     try:
@@ -175,6 +195,16 @@ def print_and_ack(data):
             printed_jobs.add(job_id)
             logging.info(f"✅ Printed task: {task_id_clean}")
             requests.post(f"{WORKER_URL}/api/printer/ack", json={"job_id": job_id}, timeout=5)
+
+            # Trigger announcement audio asynchronously for new print jobs
+            task_name = data.get('title') or task_id_clean
+            audio_thread = threading.Thread(
+                target=_play_announcement_audio_async,
+                args=(task_name,),
+                daemon=True
+            )
+            audio_thread.start()
+
             return True
         except Exception as e:
             logging.error(f"Print hardware failed: {e}")
