@@ -62,12 +62,19 @@ def _sanitize_action(action: str) -> str:
 
 def play_audio_file(audio_path):
     """
-    Plays an audio file using aplay (available on Raspberry Pi).
+    Plays an audio file using mpg123 (for mp3) or aplay (for wav).
     Falls back gracefully if audio hardware is not available.
     """
     try:
+        if audio_path.lower().endswith('.mp3'):
+            # aplay does not support MP3 decoding.
+            cmd = ["mpg123", "-q", audio_path]
+        else:
+            # Match the ALSA plughw targeting from hardware.py for wav files
+            cmd = ["aplay", "-D", "plughw:3,0", "-q", audio_path]
+
         subprocess.run(
-            ["aplay", "-q", audio_path],
+            cmd,
             check=True,
             capture_output=True,
             timeout=30
@@ -75,7 +82,12 @@ def play_audio_file(audio_path):
         logger.info(f"Played audio: {audio_path}")
         return True
     except FileNotFoundError:
-        logger.warning("aplay not found - audio playback unavailable")
+        missing_bin = "mpg123" if audio_path.lower().endswith('.mp3') else "aplay"
+        logger.warning(f"'{missing_bin}' not found - run 'sudo apt-get install {missing_bin} -y'")
+        return False
+    except subprocess.CalledProcessError as e:
+        error_msg = e.stderr.decode('utf-8', errors='ignore').strip() if e.stderr else str(e)
+        logger.error(f"Failed to play audio ({cmd[0]} error): {error_msg}")
         return False
     except subprocess.TimeoutExpired:
         logger.error("Audio playback timed out")
