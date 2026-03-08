@@ -245,7 +245,7 @@ def generate_multi_speaker_task_audio(
         
         # 1. Speaker 1 (Confirmation - Male Voice)
         male_voice = random.choice(_MALE_VOICES)
-        confirmation_text = f"Task {task_name} has been {action_lower}."
+        confirmation_text = f"Task '{task_name}' has been {action_lower}."
         path1 = generate_voice(confirmation_text, f"{output_prefix}_1.mp3", speaker=male_voice)
         if path1:
             paths.append(path1)
