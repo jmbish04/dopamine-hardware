@@ -17,7 +17,7 @@ import re
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import worker_ai
+import ai as worker_ai
 
 # Configure logging
 logging.basicConfig(
