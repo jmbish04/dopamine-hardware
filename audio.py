@@ -70,8 +70,8 @@ def play_sound(action_type):
 
 def play_audio_file(audio_path):
     """
-    Plays an audio file using mpg123 (to decode) and aplay (for wav) with thread safety.
-    Bypasses mpg123 ALSA driver issues by always playing as WAV.
+    Plays an audio file using ffmpeg (to decode mp3) and aplay (for wav) with thread safety.
+    Bypasses mpg123 ALSA driver issues by securely piping WAV data in memory.
 
     Args:
         audio_path: Path to audio file (.mp3 or .wav)
@@ -80,44 +80,52 @@ def play_audio_file(audio_path):
         bool: True if playback succeeded, False otherwise
     """
     with audio_lock:
-        temp_wav = None
-        cmd = None
         try:
             if audio_path.lower().endswith('.mp3'):
-                temp_wav = audio_path.replace('.mp3', '.wav')
+                # Pipe ffmpeg stdout (wav data) to aplay stdin
+                ffmpeg_proc = subprocess.Popen(
+                    ["ffmpeg", "-v", "quiet", "-i", audio_path, "-f", "wav", "-"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                )
+                aplay_proc = subprocess.Popen(
+                    ["aplay", "-D", "plughw:3,0", "-q"],
+                    stdin=ffmpeg_proc.stdout,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                )
                 
-                # Step 1: Decode MP3 to WAV silently
+                # Close ffmpeg stdout in parent so it receives SIGPIPE if aplay exits early
+                ffmpeg_proc.stdout.close()
+                
+                # Wait for aplay to finish
+                _, aplay_err = aplay_proc.communicate(timeout=30)
+                ffmpeg_proc.wait(timeout=30)
+                
+                if aplay_proc.returncode != 0:
+                    logger.error(f"Failed to play audio (aplay error): {aplay_err.decode('utf-8', errors='ignore').strip()}")
+                    return False
+                    
+                logger.info(f"Played audio via ffmpeg pipeline: {audio_path}")
+                return True
+            else:
+                # It's already a WAV file
                 subprocess.run(
-                    ["mpg123", "-q", "-w", temp_wav, audio_path],
+                    ["aplay", "-D", "plughw:3,0", "-q", audio_path],
                     check=True,
                     capture_output=True,
                     timeout=30
                 )
+                logger.info(f"Played audio: {audio_path}")
+                return True
                 
-                # Step 2: Play the decoded WAV file
-                cmd = ["aplay", "-D", "plughw:3,0", "-q", temp_wav]
-            else:
-                # It's already a WAV file
-                cmd = ["aplay", "-D", "plughw:3,0", "-q", audio_path]
-
-            # Execute playback
-            subprocess.run(
-                cmd,
-                check=True,
-                capture_output=True,
-                timeout=30
-            )
-            logger.info(f"Played audio: {audio_path}")
-            return True
-            
         except FileNotFoundError:
-            missing_bin = "mpg123" if audio_path.lower().endswith('.mp3') else "aplay"
+            missing_bin = "ffmpeg" if audio_path.lower().endswith('.mp3') else "aplay"
             logger.warning(f"'{missing_bin}' not found - run 'sudo apt-get install {missing_bin} -y'")
             return False
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr.decode('utf-8', errors='ignore').strip() if e.stderr else str(e)
-            binary = cmd[0] if cmd else "mpg123/aplay"
-            logger.error(f"Failed to play audio ({binary} error): {error_msg}")
+            logger.error(f"Failed to play audio (aplay error): {error_msg}")
             return False
         except subprocess.TimeoutExpired:
             logger.error("Audio playback timed out")
@@ -125,10 +133,3 @@ def play_audio_file(audio_path):
         except Exception as e:
             logger.error(f"Failed to play audio: {e}")
             return False
-        finally:
-            # Clean up the temporary WAV file if we created one
-            if temp_wav and os.path.exists(temp_wav):
-                try:
-                    os.remove(temp_wav)
-                except OSError as e:
-                    logger.warning(f"Failed to clean up temporary WAV file {temp_wav}: {e}")
