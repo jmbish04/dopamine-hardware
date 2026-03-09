@@ -25,8 +25,9 @@ TASK_AUDIO_SYSTEM_PROMPT = (
     "for task management events. Keep it under 2 sentences. Be warm, positive, and actionable for someone with ADHD."
 )
 
-MALE_VOICES = ["hermes", "perseus", "angus", "brian", "orpheus"]
-FEMALE_VOICES = ["luna", "vesta", "thalia", "aura", "stella"]
+# Validated Deepgram Aura 2 EN voices categorized by use-case
+STATUS_VOICES = ["athena", "helena"]
+MOTIVATION_VOICES = ["thalia", "helena"]
 
 
 def get_config() -> Dict[str, str]:
