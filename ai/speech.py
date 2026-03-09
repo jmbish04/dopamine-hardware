@@ -5,7 +5,7 @@ import logging
 import random
 import requests
 from typing import Optional, List
-from .config import get_config, sanitize_output_path, TASK_AUDIO_SYSTEM_PROMPT, MALE_VOICES, FEMALE_VOICES, SOUND_MAP
+from .config import get_config, sanitize_output_path, TASK_AUDIO_SYSTEM_PROMPT, STATUS_VOICES, MOTIVATION_VOICES, SOUND_MAP
 from .text import generate_text
 
 logger = logging.getLogger(__name__)
@@ -14,7 +14,8 @@ logger = logging.getLogger(__name__)
 def generate_voice(
     text: str,
     output_path: str = "output.mp3",
-    speaker: str = "luna"
+    speaker: str = "luna",
+    speed: float = 1.0
 ) -> Optional[str]:
     """
     Generate speech audio from text using Cloudflare TTS.
@@ -23,6 +24,7 @@ def generate_voice(
         text: Text to convert to speech
         output_path: Where to save the audio file
         speaker: Voice identifier (e.g., "luna", "hermes")
+        speed: Playback speed multiplier (e.g., 1.2, 1.3)
 
     Returns:
         Path to saved audio file or None on failure
@@ -40,12 +42,14 @@ def generate_voice(
             "Content-Type": "application/json"
         }
 
+        # Including speed parameter; may be ignored or rejected by strict CF Gateway validation
         payload = {
             "text": text,
-            "speaker": speaker
+            "speaker": speaker,
+            "speed": speed
         }
 
-        logger.info(f"Generating speech: '{text[:50]}...' with voice '{speaker}'")
+        logger.info(f"Generating speech: '{text[:50]}...' with voice '{speaker}' at {speed}x speed")
         response = requests.post(url, headers=headers, json=payload, stream=True, timeout=30)
 
         if response.status_code == 200:
@@ -70,7 +74,7 @@ def generate_multi_speaker_task_audio(
     output_prefix: str = "/tmp/task_multi"
 ) -> List[str]:
     """
-    Generates two audio files: one confirmation (male), one motivation (female).
+    Generates two audio files: one confirmation, one motivation.
 
     Args:
         task_name: Name of the task
@@ -84,20 +88,20 @@ def generate_multi_speaker_task_audio(
         paths = []
         action_lower = action.lower()
 
-        # 1. Speaker 1 (Confirmation - Male Voice)
-        male_voice = random.choice(MALE_VOICES)
-        confirmation_text = f"Task {task_name} has been {action_lower}."
-        path1 = generate_voice(confirmation_text, f"{output_prefix}_1.mp3", speaker=male_voice)
+        # 1. Speaker 1 (Confirmation / Status of task)
+        status_voice = random.choice(STATUS_VOICES)
+        confirmation_text = f"Task '{task_name}' has been {action_lower}."
+        path1 = generate_voice(confirmation_text, f"{output_prefix}_1.mp3", speaker=status_voice, speed=1.3)
         if path1:
             paths.append(path1)
 
-        # 2. Speaker 2 (Motivation - Female Voice)
-        female_voice = random.choice(FEMALE_VOICES)
+        # 2. Speaker 2 (Motivation)
+        motivation_voice = random.choice(MOTIVATION_VOICES)
         prompt = f"The user just marked '{task_name}' as {action_lower}. Provide a very brief, encouraging 1 to 2 sentence response."
         motivation_text = generate_text(prompt, system_prompt=TASK_AUDIO_SYSTEM_PROMPT, temperature=0.8, max_tokens=150)
 
         if motivation_text:
-            path2 = generate_voice(motivation_text, f"{output_prefix}_2.mp3", speaker=female_voice)
+            path2 = generate_voice(motivation_text, f"{output_prefix}_2.mp3", speaker=motivation_voice, speed=1.2)
             if path2:
                 paths.append(path2)
 
@@ -123,7 +127,7 @@ def generate_announcement_audio(
     """
     try:
         text = f"New task received: {task_name}"
-        return generate_voice(text, output_path, speaker="aura")
+        return generate_voice(text, output_path, speaker="athena", speed=1.3)
     except Exception as e:
         logger.error(f"Announcement generation failed: {e}", exc_info=True)
         return None
@@ -181,7 +185,8 @@ def generate_task_completion_audio(
         full_message = message
         logger.info(f"Final message: {full_message}")
 
-        result = generate_voice(text=full_message, output_path=output_path, speaker=speaker)
+        # Applying the 1.2x motivational speed for standard completion legacy logic
+        result = generate_voice(text=full_message, output_path=output_path, speaker=speaker, speed=1.2)
         if result:
             sound_file = SOUND_MAP.get(action_lower, "started.wav")
             logger.info(f"Play sound effect '{sound_file}' before audio message")
