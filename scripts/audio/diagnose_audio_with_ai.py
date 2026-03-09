@@ -14,21 +14,25 @@ Requires:
     - CLOUDFLARE_API_TOKEN  (or CF_API_TOKEN)
 """
 
+import math
 import os
+import struct
 import sys
 import json
 import shutil
 import subprocess
 import tempfile
+import wave
 from pathlib import Path
+
+import requests
+from openai import OpenAI
 
 try:
     from dotenv import load_dotenv
     load_dotenv()
 except ImportError:
     pass  # dotenv is optional; env vars may already be set
-
-from openai import OpenAI
 
 # --- Configuration ---
 ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID") or os.getenv("CF_ACCOUNT_ID")
@@ -41,6 +45,13 @@ API_TOKEN = (
 GATEWAY_NAME = os.getenv("CLOUDFLARE_GATEWAY_NAME") or os.getenv("CF_GATEWAY_NAME", "default-gateway")
 
 AI_MODEL = "workers-ai/@cf/openai/gpt-oss-120b"
+TTS_MODEL = "@cf/deepgram/aura-2-en"
+
+# The ALSA device the bridge hardcodes in audio.py
+APP_ALSA_DEVICE = "plughw:3,0"
+
+# Repository root (this file lives at scripts/audio/)
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 # Audio tools the bridge depends on
 REQUIRED_TOOLS = ["aplay", "mpg123"]
@@ -99,9 +110,7 @@ def check_asoundrc():
     """Read ALSA configuration files."""
     home_rc = read_file(os.path.expanduser("~/.asoundrc"))
     etc_rc = read_file("/etc/asound.conf")
-    project_rc = read_file(
-        os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".asoundrc")
-    )
+    project_rc = read_file(str(REPO_ROOT / ".asoundrc"))
     return {
         "home_asoundrc": home_rc,
         "etc_asound_conf": etc_rc,
@@ -153,10 +162,6 @@ def check_audio_group():
 
 def test_wav_playback():
     """Generate a tiny WAV file and attempt to play it via aplay."""
-    import wave
-    import struct
-    import math
-
     wav_path = os.path.join(tempfile.gettempdir(), "diag_test.wav")
     try:
         sample_rate = 44100
@@ -170,8 +175,8 @@ def test_wav_playback():
                 val = int(32767.0 * math.sin(2.0 * math.pi * freq * i / sample_rate))
                 wf.writeframesraw(struct.pack("<h", val))
 
-        # Attempt 1: explicit device (plughw:3,0)
-        stdout1, stderr1, rc1 = run_cmd(f"aplay -D plughw:3,0 -q {wav_path} 2>&1", timeout=10)
+        # Attempt 1: app's hardcoded device
+        stdout1, stderr1, rc1 = run_cmd(f"aplay -D {APP_ALSA_DEVICE} -q {wav_path} 2>&1", timeout=10)
         # Attempt 2: default device
         stdout2, stderr2, rc2 = run_cmd(f"aplay -q {wav_path} 2>&1", timeout=10)
         # Attempt 3: try each card
@@ -199,16 +204,11 @@ def test_wav_playback():
 
 
 def test_mpg123_playback():
-    """Generate a minimal MP3 (via TTS or ffmpeg) and test mpg123."""
+    """Generate a minimal MP3 (via ffmpeg) and test mpg123."""
     mp3_path = os.path.join(tempfile.gettempdir(), "diag_test.mp3")
     wav_path = os.path.join(tempfile.gettempdir(), "diag_test_src.wav")
 
     try:
-        # Create a tiny WAV to convert
-        import wave
-        import struct
-        import math
-
         sample_rate = 44100
         duration = 0.25
         freq = 440.0
@@ -235,7 +235,7 @@ def test_mpg123_playback():
         # Try mpg123 with different ALSA outputs
         stdout1, stderr1, rc1 = run_cmd(f"mpg123 -q {mp3_path} 2>&1", timeout=10)
         stdout2, stderr2, rc2 = run_cmd(f"mpg123 -q -o alsa -a default {mp3_path} 2>&1", timeout=10)
-        stdout3, stderr3, rc3 = run_cmd(f"mpg123 -q -o alsa -a plughw:3,0 {mp3_path} 2>&1", timeout=10)
+        stdout3, stderr3, rc3 = run_cmd(f"mpg123 -q -o alsa -a {APP_ALSA_DEVICE} {mp3_path} 2>&1", timeout=10)
 
         # Also check mpg123 supported output modules
         stdout4, stderr4, _ = run_cmd("mpg123 --list-modules 2>&1")
@@ -260,9 +260,7 @@ def test_tts_generation():
     if not ACCOUNT_ID or not API_TOKEN:
         return {"skipped": True, "reason": "Missing Cloudflare credentials"}
 
-    import requests
-
-    url = f"https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/ai/run/@cf/deepgram/aura-2-en"
+    url = f"https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/ai/run/{TTS_MODEL}"
     headers = {
         "Authorization": f"Bearer {API_TOKEN}",
         "Content-Type": "application/json",
@@ -314,8 +312,7 @@ def check_systemd_environment():
 
 def read_audio_module():
     """Return the project's audio.py source for the AI to review."""
-    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    return read_file(os.path.join(repo_root, "audio.py"))
+    return read_file(str(REPO_ROOT / "audio.py"))
 
 
 # ---------------------------------------------------------------------------
