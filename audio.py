@@ -97,8 +97,6 @@ def play_audio_file(audio_path):
                     capture_output=False,
                     timeout=30
                 )
-                ffmpeg_proc.stdout.close()
-                ffmpeg_proc.wait(timeout=10)
             else:
                 # It's already a WAV file
                 subprocess.run(
@@ -117,7 +115,8 @@ def play_audio_file(audio_path):
             return False
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr.decode('utf-8', errors='ignore').strip() if e.stderr else str(e)
-            logger.error(f"Failed to play audio (aplay error): {error_msg}")
+            binary = e.cmd[0] if e.cmd else "ffmpeg/aplay"
+            logger.error(f"Failed to play audio ({binary} error): {error_msg}")
             return False
         except subprocess.TimeoutExpired:
             logger.error("Audio playback timed out")
