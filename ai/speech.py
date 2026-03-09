@@ -18,12 +18,12 @@ def generate_voice(
     speed: float = 1.0
 ) -> Optional[str]:
     """
-    Generate speech audio from text using Cloudflare TTS.
+    Generate speech audio from text using configured TTS provider (Deepgram or Cloudflare).
 
     Args:
         text: Text to convert to speech
         output_path: Where to save the audio file
-        speaker: Voice identifier (e.g., "luna", "hermes")
+        speaker: Voice identifier (e.g., "luna", "hermes", "athena")
         speed: Playback speed multiplier (e.g., 1.2, 1.3)
 
     Returns:
@@ -32,36 +32,65 @@ def generate_voice(
     try:
         safe_output_path = sanitize_output_path(output_path)
         config = get_config()
-        account_id = config['account_id']
-        api_token = config['api_token']
+        tts_provider = config.get('tts_provider', 'cloudflare')
 
-        url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/@cf/deepgram/aura-2-en"
+        logger.info(f"Generating speech with provider '{tts_provider}': '{text[:50]}...' voice='{speaker}' speed={speed}x")
 
-        headers = {
-            "Authorization": f"Bearer {api_token}",
-            "Content-Type": "application/json"
-        }
+        if tts_provider == "deepgram":
+            # Use Deepgram native REST API
+            deepgram_api_key = config['deepgram_api_key']
+            url = f"https://api.deepgram.com/v1/speak?model=aura-2-{speaker}-en&speed={speed}"
 
-        # Including speed parameter; may be ignored or rejected by strict CF Gateway validation
-        payload = {
-            "text": text,
-            "speaker": speaker,
-            "speed": speed
-        }
+            headers = {
+                "Authorization": f"Token {deepgram_api_key}",
+                "Content-Type": "application/json"
+            }
 
-        logger.info(f"Generating speech: '{text[:50]}...' with voice '{speaker}' at {speed}x speed")
-        response = requests.post(url, headers=headers, json=payload, stream=True, timeout=30)
+            payload = {"text": text}
 
-        if response.status_code == 200:
-            with open(safe_output_path, "wb") as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    if chunk:
-                        f.write(chunk)
-            logger.info(f"Audio saved to {safe_output_path}")
-            return safe_output_path
+            response = requests.post(url, headers=headers, json=payload, stream=True, timeout=30)
+
+            if response.status_code == 200:
+                with open(safe_output_path, "wb") as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+                logger.info(f"Audio saved to {safe_output_path}")
+                return safe_output_path
+            else:
+                logger.error(f"Deepgram TTS failed. Status: {response.status_code}, Details: {response.text}")
+                return None
+
         else:
-            logger.error(f"TTS failed. Status: {response.status_code}, Details: {response.text}")
-            return None
+            # Use Cloudflare Workers AI
+            account_id = config['account_id']
+            api_token = config['api_token']
+            url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/@cf/deepgram/aura-2-en"
+
+            headers = {
+                "Authorization": f"Bearer {api_token}",
+                "Content-Type": "application/json"
+            }
+
+            # Including speed parameter; may be ignored or rejected by strict CF Gateway validation
+            payload = {
+                "text": text,
+                "speaker": speaker,
+                "speed": speed
+            }
+
+            response = requests.post(url, headers=headers, json=payload, stream=True, timeout=30)
+
+            if response.status_code == 200:
+                with open(safe_output_path, "wb") as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+                logger.info(f"Audio saved to {safe_output_path}")
+                return safe_output_path
+            else:
+                logger.error(f"Cloudflare TTS failed. Status: {response.status_code}, Details: {response.text}")
+                return None
 
     except Exception as e:
         logger.error(f"Voice generation failed: {e}", exc_info=True)
@@ -85,23 +114,24 @@ def generate_multi_speaker_task_audio(
         List of generated audio file paths
     """
     try:
+        config = get_config()
         paths = []
         action_lower = action.lower()
 
         # 1. Speaker 1 (Confirmation / Status of task)
-        status_voice = random.choice(STATUS_VOICES)
+        status_voice = random.choice(config['status_voices'])
         confirmation_text = f"Task '{task_name}' has been {action_lower}."
-        path1 = generate_voice(confirmation_text, f"{output_prefix}_1.mp3", speaker=status_voice, speed=1.3)
+        path1 = generate_voice(confirmation_text, f"{output_prefix}_1.mp3", speaker=status_voice, speed=config['status_speed'])
         if path1:
             paths.append(path1)
 
         # 2. Speaker 2 (Motivation)
-        motivation_voice = random.choice(MOTIVATION_VOICES)
+        motivation_voice = random.choice(config['motivation_voices'])
         prompt = f"The user just marked '{task_name}' as {action_lower}. Provide a very brief, encouraging 1 to 2 sentence response."
         motivation_text = generate_text(prompt, system_prompt=TASK_AUDIO_SYSTEM_PROMPT, temperature=0.8, max_tokens=150)
 
         if motivation_text:
-            path2 = generate_voice(motivation_text, f"{output_prefix}_2.mp3", speaker=motivation_voice, speed=1.2)
+            path2 = generate_voice(motivation_text, f"{output_prefix}_2.mp3", speaker=motivation_voice, speed=config['motivation_speed'])
             if path2:
                 paths.append(path2)
 
