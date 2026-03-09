@@ -5,7 +5,7 @@ import traceback
 import requests
 import websocket
 from config import WS_URL, WORKER_URL
-from hardware import print_and_ack
+from printer import print_and_ack
 
 def _sanitize_for_logging(text):
     """Sanitize text for logging to prevent log injection attacks."""

@@ -4,7 +4,7 @@ import time
 import socket
 import subprocess
 import os
-from hardware import print_and_ack, get_printer, printer_lock
+from printer import print_and_ack, get_printer, printer_lock
 
 app = Flask(__name__)
 

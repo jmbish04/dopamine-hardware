@@ -2,7 +2,7 @@ import logging
 import threading
 from core_logger import setup_logger
 from telemetry import telemetry_worker
-from hardware import scanner_worker
+from scanner import scanner_worker
 from cloud_sync import run_websocket, run_rest_polling
 from api import app
 

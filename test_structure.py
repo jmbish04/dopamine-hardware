@@ -57,17 +57,26 @@ def test_module_structure():
         print(f"   ✗ Failed: {e}")
         return False
 
-    # Test 4: Hardware module (will fail without evdev/escpos installed)
-    print("\n[4/7] Testing hardware.py...")
+    # Test 4: Audio module
+    print("\n[4/10] Testing audio.py...")
     try:
-        import hardware
-        assert hasattr(hardware, 'get_printer')
-        assert hasattr(hardware, 'print_and_ack')
-        assert hasattr(hardware, 'scanner_worker')
-        assert hasattr(hardware, 'printer_lock')
-        assert hasattr(hardware, 'play_sound')
-        print("   ✓ Hardware functions defined")
-        print("   ℹ Note: Printer/scanner not tested (requires hardware)")
+        import audio
+        assert hasattr(audio, 'play_sound')
+        assert hasattr(audio, 'generate_sounds')
+        print("   ✓ Audio functions defined")
+    except Exception as e:
+        print(f"   ✗ Failed: {e}")
+        return False
+
+    # Test 5: Printer module (will fail without escpos installed)
+    print("\n[5/10] Testing printer.py...")
+    try:
+        import printer
+        assert hasattr(printer, 'get_printer')
+        assert hasattr(printer, 'print_and_ack')
+        assert hasattr(printer, 'printer_lock')
+        print("   ✓ Printer functions defined")
+        print("   ℹ Note: Printer not tested (requires escpos library)")
     except ImportError as e:
         print(f"   ⚠ Import warning: {e}")
         print("   ℹ This is expected in CI environment without hardware libs")
@@ -75,8 +84,33 @@ def test_module_structure():
         print(f"   ✗ Failed: {e}")
         return False
 
-    # Test 5: Cloud sync module
-    print("\n[5/7] Testing cloud_sync.py...")
+    # Test 6: Scanner module (will fail without evdev installed)
+    print("\n[6/10] Testing scanner.py...")
+    try:
+        import scanner
+        assert hasattr(scanner, 'scanner_worker')
+        print("   ✓ Scanner worker defined")
+        print("   ℹ Note: Scanner not tested (requires evdev library)")
+    except ImportError as e:
+        print(f"   ⚠ Import warning: {e}")
+        print("   ℹ This is expected in CI environment without hardware libs")
+    except Exception as e:
+        print(f"   ✗ Failed: {e}")
+        return False
+
+    # Test 7: Hardware module (legacy - will be deprecated)
+    print("\n[7/10] Testing hardware.py (legacy)...")
+    try:
+        import hardware
+        print("   ℹ Note: hardware.py is deprecated, use audio/printer/scanner modules")
+    except ImportError as e:
+        print(f"   ℹ Hardware module not found (expected with new modular structure)")
+    except Exception as e:
+        print(f"   ✗ Failed: {e}")
+        return False
+
+    # Test 8: Cloud sync module
+    print("\n[8/10] Testing cloud_sync.py...")
     try:
         import cloud_sync
         assert hasattr(cloud_sync, 'run_websocket')
@@ -90,8 +124,8 @@ def test_module_structure():
         print(f"   ✗ Failed: {e}")
         return False
 
-    # Test 6: API module
-    print("\n[6/7] Testing api.py...")
+    # Test 9: API module
+    print("\n[9/10] Testing api.py...")
     try:
         import api
         assert hasattr(api, 'app')
@@ -112,8 +146,8 @@ def test_module_structure():
         print(f"   ✗ Failed: {e}")
         return False
 
-    # Test 7: Main entry point
-    print("\n[7/7] Testing main.py...")
+    # Test 10: Main entry point
+    print("\n[10/10] Testing main.py...")
     try:
         import main
         assert hasattr(main, 'main')
@@ -125,6 +159,31 @@ def test_module_structure():
     except Exception as e:
         print(f"   ✗ Failed: {e}")
         return False
+
+    # Bonus: Test AI package (optional)
+    print("\n[BONUS] Testing ai package...")
+    try:
+        import ai
+        assert hasattr(ai, 'generate_text')
+        assert hasattr(ai, 'generate_voice')
+        assert hasattr(ai, 'diagnose_hardware')
+        print("   ✓ AI package functions defined")
+        print("   ℹ Note: AI features require Cloudflare credentials")
+    except ImportError as e:
+        print(f"   ⚠ Import warning: {e}")
+        print("   ℹ AI package optional - requires openai library")
+    except Exception as e:
+        print(f"   ⚠ AI package error: {e}")
+
+    # Check legacy worker_ai (should be deprecated)
+    print("\n[LEGACY] Checking worker_ai.py...")
+    try:
+        import worker_ai
+        print("   ℹ Note: worker_ai.py exists (use 'ai' package instead)")
+    except ImportError:
+        print("   ✓ worker_ai.py not found (expected - use 'ai' package)")
+    except Exception as e:
+        print(f"   ⚠ worker_ai error: {e}")
 
     return True
 

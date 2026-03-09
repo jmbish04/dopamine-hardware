@@ -9,10 +9,10 @@ import sys
 import logging
 import json
 
-# Add parent directory to path to import worker_ai
+# Add parent directory to path to import ai module
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import worker_ai
+import ai as worker_ai
 
 # Configure logging
 logging.basicConfig(

@@ -49,43 +49,66 @@ The bridge maintains three resilient communication channels with the Cloudflare 
   - Pushes logs asynchronously to Cloudflare Worker telemetry endpoint
   - Ensures graceful failure if Worker is unreachable
 
-### `hardware.py`
-**Purpose**: Physical device interactions
+### `audio.py`
+**Purpose**: Audio synthesis and playback
+**Dependencies**: None (system libraries: wave, subprocess)
+**Contents**:
+- `generate_sounds()`: Synthesizes WAV files for UI feedback
+- `play_sound()`: Non-blocking audio playback via `aplay`
+
+### `printer.py`
+**Purpose**: Thermal printer interface (Epson TM-T20III)
 **Dependencies**: `config`
 **Contents**:
-- **Printer Logic**:
-  - `get_printer()`: USB printer initialization (Epson TM-T20III)
-  - `print_and_ack()`: Thread-safe printing with job deduplication
-  - `printer_lock`: Threading lock to prevent USB bus collisions
+- `get_printer()`: USB printer initialization
+- `print_and_ack()`: Thread-safe printing with job deduplication
+- `printer_lock`: Threading lock to prevent USB bus collisions
+- `_sanitize_escpos_input()`: Input validation and sanitization
+- `_format_timestamp()`: Timestamp formatting helper
 
-- **Scanner Logic**:
-  - `scanner_worker()`: Background thread monitoring evdev for barcode scans
-  - Supports Tera D5100 scanner and generic HID keyboard devices
-  - Handles scan types (task vs. command) with audio feedback
-
-- **Audio Synthesis**:
-  - `generate_sounds()`: Synthesizes WAV files for beep feedback
-  - `play_sound()`: Non-blocking audio playback via `aplay`
+### `scanner.py`
+**Purpose**: Barcode scanner interface (Tera D5100)
+**Dependencies**: `config`, `audio`
+**Contents**:
+- `scanner_worker()`: Background thread monitoring evdev for barcode scans
+- Supports generic HID keyboard devices
+- Handles scan types (task vs. command) with audio feedback
 
 ### `cloud_sync.py`
 **Purpose**: Cloudflare Worker communication
-**Dependencies**: `config`, `hardware`
+**Dependencies**: `config`, `printer`
 **Contents**:
 - `run_websocket()`: Maintains persistent WebSocket connection
   - Auto-reconnects on disconnect
   - Triggers `print_and_ack()` on incoming jobs
-
 - `run_rest_polling()`: Fallback polling mechanism
   - Polls every 15 seconds for missed jobs
   - Resilient to temporary network failures
 
 ### `api.py`
 **Purpose**: Flask REST API (VPC endpoints)
-**Dependencies**: `hardware`
+**Dependencies**: `printer`
 **Contents**:
 - `POST /print`: Primary print job endpoint
 - `GET|POST /test`: Hardware diagnostic endpoint (prints test receipt)
 - `GET /logs?lines=N`: Returns systemd journal logs
+
+### `ai/` Package
+**Purpose**: Cloudflare AI integration for text generation and TTS
+**Dependencies**: openai, requests
+**Sub-modules**:
+- `ai/config.py`: Configuration and environment helpers
+- `ai/text.py`: Text and structured response generation
+- `ai/speech.py`: Text-to-speech and audio generation
+- `ai/diagnostics.py`: Hardware diagnostics using AI
+- `ai/__init__.py`: Package initialization
+
+**Key Functions**:
+- `generate_text()`: LLM text generation
+- `generate_structured_response()`: JSON-structured responses
+- `generate_voice()`: Text-to-speech synthesis
+- `generate_task_completion_audio()`: Task event audio with motivational messages
+- `diagnose_hardware()`: AI-powered hardware configuration analysis
 
 ### `main.py`
 **Purpose**: Application entry point
@@ -178,18 +201,29 @@ config.py (no dependencies)
 ├── core_logger.py (no dependencies)
 │   └── telemetry.py
 │       └── main.py
-└── hardware.py
-    ├── cloud_sync.py
-    │   └── main.py
-    └── api.py
-        └── main.py
+├── audio.py (no dependencies)
+├── printer.py
+│   ├── cloud_sync.py
+│   │   └── main.py
+│   └── api.py
+│       └── main.py
+├── scanner.py (depends on audio)
+│   └── main.py
+└── ai/ package (no cross-dependencies with hardware)
+    ├── ai/config.py (no dependencies)
+    ├── ai/text.py (depends on ai/config)
+    ├── ai/speech.py (depends on ai/config, ai/text)
+    └── ai/diagnostics.py (depends on ai/text)
 ```
 
 No circular dependencies exist. All modules import cleanly.
 
 ### Legacy Compatibility
 
-The original `app.py` is preserved for reference and rollback purposes. The systemd service now points to `main.py`.
+The original `app.py` is preserved for reference and rollback purposes.
+The original monolithic `hardware.py` has been split into `audio.py`, `printer.py`, and `scanner.py`.
+The original `worker_ai.py` has been refactored into the `ai/` package for better modularity.
+The systemd service points to `main.py`.
 
 ## Monitoring
 
