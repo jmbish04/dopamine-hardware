@@ -30,8 +30,15 @@ STATUS_VOICES = ["athena", "helena"]
 MOTIVATION_VOICES = ["thalia", "helena"]
 
 
+def _parse_comma_separated_list(value: str) -> list:
+    """Parse a comma-separated string into a list."""
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
 def get_config() -> Dict[str, str]:
-    """Loads Cloudflare AI credentials from environment variables."""
+    """Loads Cloudflare AI credentials and TTS provider settings from environment variables."""
     account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID") or os.environ.get("CF_ACCOUNT_ID")
     api_token = (
         os.environ.get("CLOUDFLARE_AI_GATEWAY_TOKEN")
@@ -41,16 +48,54 @@ def get_config() -> Dict[str, str]:
     )
     gateway_name = os.environ.get("CLOUDFLARE_GATEWAY_NAME") or os.environ.get("CF_GATEWAY_NAME", "default-gateway")
 
-    if not account_id or not api_token:
-        raise ValueError(
-            "Missing Cloudflare credentials. Set CLOUDFLARE_ACCOUNT_ID and "
-            "CLOUDFLARE_API_TOKEN (or CF_ACCOUNT_ID and CF_API_TOKEN) environment variables."
-        )
+    # TTS Provider configuration
+    tts_provider = os.environ.get("TTS_PROVIDER", "cloudflare").lower()
+    deepgram_api_key = os.environ.get("DEEPGRAM_API_KEY", "")
+    deepgram_project_id = os.environ.get("DEEPGRAM_PROJECT_ID", "")
+
+    # Voice and speed configuration with environment overrides
+    status_voices_env = os.environ.get("TTS_STATUS_VOICES", "")
+    status_voices = _parse_comma_separated_list(status_voices_env) if status_voices_env else STATUS_VOICES
+
+    motivation_voices_env = os.environ.get("TTS_MOTIVATION_VOICES", "")
+    motivation_voices = _parse_comma_separated_list(motivation_voices_env) if motivation_voices_env else MOTIVATION_VOICES
+
+    try:
+        status_speed = float(os.environ.get("TTS_STATUS_SPEED", "1.3"))
+    except ValueError:
+        logger.warning("Invalid TTS_STATUS_SPEED value, using default 1.3")
+        status_speed = 1.3
+
+    try:
+        motivation_speed = float(os.environ.get("TTS_MOTIVATION_SPEED", "1.2"))
+    except ValueError:
+        logger.warning("Invalid TTS_MOTIVATION_SPEED value, using default 1.2")
+        motivation_speed = 1.2
+
+    # Validate credentials based on provider
+    if tts_provider == "cloudflare":
+        if not account_id or not api_token:
+            raise ValueError(
+                "Missing Cloudflare credentials. Set CLOUDFLARE_ACCOUNT_ID and "
+                "CLOUDFLARE_API_TOKEN (or CF_ACCOUNT_ID and CF_API_TOKEN) environment variables."
+            )
+    elif tts_provider == "deepgram":
+        if not deepgram_api_key:
+            raise ValueError(
+                "Missing Deepgram credentials. Set DEEPGRAM_API_KEY environment variable."
+            )
 
     return {
         "account_id": account_id,
         "api_token": api_token,
-        "gateway_name": gateway_name
+        "gateway_name": gateway_name,
+        "tts_provider": tts_provider,
+        "deepgram_api_key": deepgram_api_key,
+        "deepgram_project_id": deepgram_project_id,
+        "status_voices": status_voices,
+        "motivation_voices": motivation_voices,
+        "status_speed": status_speed,
+        "motivation_speed": motivation_speed
     }
 
 
