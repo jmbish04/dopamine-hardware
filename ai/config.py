@@ -4,7 +4,7 @@ Configuration and utilities for Cloudflare AI integration.
 import os
 import logging
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -30,14 +30,23 @@ STATUS_VOICES = ["athena", "helena"]
 MOTIVATION_VOICES = ["thalia", "helena"]
 
 
-def _parse_comma_separated_list(value: str) -> list:
+def _parse_comma_separated_list(value: str) -> list[str]:
     """Parse a comma-separated string into a list."""
     if not value:
         return []
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-def get_config() -> Dict[str, str]:
+def _get_float_env(key: str, default: float) -> float:
+    """Gets a float from environment variables with a default."""
+    try:
+        return float(os.environ.get(key, str(default)))
+    except (ValueError, TypeError):
+        logger.warning(f"Invalid {key} value, using default {default}")
+        return default
+
+
+def get_config() -> Dict[str, Any]:
     """Loads Cloudflare AI credentials and TTS provider settings from environment variables."""
     account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID") or os.environ.get("CF_ACCOUNT_ID")
     api_token = (
@@ -60,17 +69,8 @@ def get_config() -> Dict[str, str]:
     motivation_voices_env = os.environ.get("TTS_MOTIVATION_VOICES", "")
     motivation_voices = _parse_comma_separated_list(motivation_voices_env) if motivation_voices_env else MOTIVATION_VOICES
 
-    try:
-        status_speed = float(os.environ.get("TTS_STATUS_SPEED", "1.3"))
-    except ValueError:
-        logger.warning("Invalid TTS_STATUS_SPEED value, using default 1.3")
-        status_speed = 1.3
-
-    try:
-        motivation_speed = float(os.environ.get("TTS_MOTIVATION_SPEED", "1.2"))
-    except ValueError:
-        logger.warning("Invalid TTS_MOTIVATION_SPEED value, using default 1.2")
-        motivation_speed = 1.2
+    status_speed = _get_float_env("TTS_STATUS_SPEED", 1.3)
+    motivation_speed = _get_float_env("TTS_MOTIVATION_SPEED", 1.2)
 
     # Validate credentials based on provider
     if tts_provider == "cloudflare":
