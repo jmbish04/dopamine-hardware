@@ -11,6 +11,34 @@ from .text import generate_text
 logger = logging.getLogger(__name__)
 
 
+def _execute_tts_request(url: str, headers: dict, payload: dict, output_path: str, provider_name: str, params: dict = None) -> Optional[str]:
+    """
+    Execute a TTS request and save the response to a file.
+
+    Args:
+        url: The API endpoint URL
+        headers: HTTP headers for the request
+        payload: JSON payload for the request
+        output_path: Path where the audio file will be saved
+        provider_name: Name of the TTS provider (for logging)
+        params: Optional URL parameters
+
+    Returns:
+        Path to saved audio file or None on failure
+    """
+    response = requests.post(url, headers=headers, json=payload, stream=True, timeout=30, params=params)
+    if response.status_code == 200:
+        with open(output_path, "wb") as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+        logger.info(f"Audio saved to {output_path}")
+        return output_path
+    else:
+        logger.error(f"{provider_name} TTS failed. Status: {response.status_code}, Details: {response.text}")
+        return None
+
+
 def generate_voice(
     text: str,
     output_path: str = "output.mp3",
@@ -39,7 +67,11 @@ def generate_voice(
         if tts_provider == "deepgram":
             # Use Deepgram native REST API
             deepgram_api_key = config['deepgram_api_key']
-            url = f"https://api.deepgram.com/v1/speak?model=aura-2-{speaker}-en&speed={speed}"
+            url = "https://api.deepgram.com/v1/speak"
+            params = {
+                "model": f"aura-2-{speaker}-en",
+                "speed": speed
+            }
 
             headers = {
                 "Authorization": f"Token {deepgram_api_key}",
@@ -48,18 +80,7 @@ def generate_voice(
 
             payload = {"text": text}
 
-            response = requests.post(url, headers=headers, json=payload, stream=True, timeout=30)
-
-            if response.status_code == 200:
-                with open(safe_output_path, "wb") as f:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        if chunk:
-                            f.write(chunk)
-                logger.info(f"Audio saved to {safe_output_path}")
-                return safe_output_path
-            else:
-                logger.error(f"Deepgram TTS failed. Status: {response.status_code}, Details: {response.text}")
-                return None
+            return _execute_tts_request(url, headers, payload, safe_output_path, "Deepgram", params=params)
 
         else:
             # Use Cloudflare Workers AI
@@ -79,18 +100,7 @@ def generate_voice(
                 "speed": speed
             }
 
-            response = requests.post(url, headers=headers, json=payload, stream=True, timeout=30)
-
-            if response.status_code == 200:
-                with open(safe_output_path, "wb") as f:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        if chunk:
-                            f.write(chunk)
-                logger.info(f"Audio saved to {safe_output_path}")
-                return safe_output_path
-            else:
-                logger.error(f"Cloudflare TTS failed. Status: {response.status_code}, Details: {response.text}")
-                return None
+            return _execute_tts_request(url, headers, payload, safe_output_path, "Cloudflare")
 
     except Exception as e:
         logger.error(f"Voice generation failed: {e}", exc_info=True)

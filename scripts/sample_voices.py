@@ -4,10 +4,16 @@ Voice sampling script - Round-robin demo of Deepgram Aura 2 EN voices.
 
 Cycles through a list of voices, reading sentences from a longer text block.
 Each sentence is spoken by a different voice in sequence.
+
+NOTE: For a more robust setup, consider making this project an installable package
+(e.g., with a setup.py or pyproject.toml). This would allow you to install it in
+editable mode (pip install -e .), which handles path resolution correctly without
+needing to modify sys.path.
 """
 import os
 import sys
 import re
+import tempfile
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -54,19 +60,22 @@ def main():
     print("="*70 + "\n")
 
     voice_index = 0
+    temp_files = []
 
-    for i, sentence in enumerate(sentences, 1):
-        # Pick the next voice in round-robin fashion
-        voice = VOICES[voice_index % len(VOICES)]
-        voice_index += 1
+    try:
+        for i, sentence in enumerate(sentences, 1):
+            # Pick the next voice in round-robin fashion
+            voice = VOICES[voice_index % len(VOICES)]
+            voice_index += 1
 
-        # Print to console
-        print(f"[{voice.upper()}]: \"{sentence}\"")
+            # Print to console
+            print(f"[{voice.upper()}]: \"{sentence}\"")
 
-        # Generate audio file in /tmp
-        temp_audio_path = f"/tmp/voice_sample_{i}.mp3"
+            # Generate audio file in /tmp using tempfile
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False, dir="/tmp") as tmp:
+                temp_audio_path = tmp.name
+                temp_files.append(temp_audio_path)
 
-        try:
             # Generate the voice
             audio_path = generate_voice(
                 text=sentence,
@@ -78,25 +87,18 @@ def main():
             if audio_path:
                 # Play the audio
                 play_audio_file(audio_path)
-
-                # Clean up temp file
-                if os.path.exists(audio_path):
-                    os.remove(audio_path)
-                    print(f"✓ Cleaned up: {audio_path}\n")
+                print(f"✓ Played: {audio_path}\n")
             else:
                 print(f"✗ Failed to generate audio for sentence {i}\n")
 
-        except KeyboardInterrupt:
-            print("\n\nInterrupted by user. Cleaning up...")
-            # Clean up any remaining temp files
-            for j in range(1, i+1):
-                temp_file = f"/tmp/voice_sample_{j}.mp3"
-                if os.path.exists(temp_file):
-                    os.remove(temp_file)
-            sys.exit(0)
-        except Exception as e:
-            print(f"✗ Error processing sentence {i}: {e}\n")
-            continue
+    except KeyboardInterrupt:
+        print("\n\nInterrupted by user.")
+    finally:
+        print("Cleaning up temporary files...")
+        for f_path in temp_files:
+            if os.path.exists(f_path):
+                os.remove(f_path)
+                print(f"✓ Cleaned up: {f_path}")
 
     print("="*70)
     print("Voice sampling demonstration complete!")
