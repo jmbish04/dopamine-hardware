@@ -323,7 +323,7 @@ def run_websocket():
         time.sleep(5)
         run_websocket()
     ws = websocket.WebSocketApp(WS_URL, on_message=on_message, on_error=on_error, on_close=on_close)
-    ws.run_forever()
+    ws.run_forever(ping_interval=30, ping_timeout=10)
 
 def run_rest_polling():
     while True:
