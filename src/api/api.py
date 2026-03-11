@@ -4,6 +4,7 @@ import time
 import socket
 import subprocess
 import os
+import functools
 from src.hardware.printer import print_and_ack, get_printer, printer_lock
 
 app = Flask(__name__)
@@ -12,14 +13,20 @@ app = Flask(__name__)
 API_KEY = os.environ.get('DOPAMINE_API_KEY')
 
 def require_api_key(f):
-    """Decorator to require API key if configured."""
+    """
+    Decorator to require API key authentication.
+
+    If DOPAMINE_API_KEY is not set, authentication is disabled (fails open).
+    This is acceptable for development or when using Cloudflare Tunnel authentication.
+    For production without Cloudflare Tunnel, set DOPAMINE_API_KEY environment variable.
+    """
+    @functools.wraps(f)
     def decorated_function(*args, **kwargs):
         if API_KEY:
             provided_key = request.headers.get('X-API-Key')
             if provided_key != API_KEY:
                 return jsonify({"error": "Unauthorized"}), 401
         return f(*args, **kwargs)
-    decorated_function.__name__ = f.__name__
     return decorated_function
 
 @app.route('/print', methods=['POST'])

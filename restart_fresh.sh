@@ -14,8 +14,18 @@ echo "🔄 Restarting dopamine.service..."
 sudo systemctl restart dopamine.service
 
 echo "⏳ Waiting for service to start..."
-sleep 2
+# Poll service status instead of fixed sleep to avoid race conditions
+MAX_WAIT=10
+ELAPSED=0
+until sudo systemctl is-active --quiet dopamine.service || [ $ELAPSED -ge $MAX_WAIT ]; do
+    sleep 0.5
+    ELAPSED=$((ELAPSED + 1))
+done
 
-echo "✅ Service restarted. Streaming logs..."
+if sudo systemctl is-active --quiet dopamine.service; then
+    echo "✅ Service restarted. Streaming logs..."
+else
+    echo "⚠️ Service may not be fully started yet. Streaming logs..."
+fi
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 journalctl -u dopamine.service -f
