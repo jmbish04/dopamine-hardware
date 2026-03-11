@@ -87,7 +87,9 @@ def scanner_worker():
                                         if action and response.status_code == 200:
                                             try:
                                                 response_data = response.json()
-                                                task_name = response_data.get('title') or response_data.get('taskId') or 'Unknown Task'
+                                                # Extract nested task object from API response
+                                                task_data = response_data.get('task') or {}
+                                                task_name = task_data.get('title') or task_data.get('taskId') or response_data.get('taskId') or 'Unknown Task'
 
                                                 # Start audio generation/playback in background thread
                                                 audio_thread = threading.Thread(

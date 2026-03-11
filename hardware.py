@@ -277,7 +277,11 @@ def scanner_worker():
                                         if res.status_code == 200:
                                             try:
                                                 resp_json = res.json()
-                                                if "title" in resp_json:
+                                                # Extract nested task object from API response
+                                                task_data = resp_json.get('task') or {}
+                                                if task_data.get('title'):
+                                                    task_title = task_data.get('title')
+                                                elif "title" in resp_json:
                                                     task_title = resp_json["title"]
                                             except Exception:
                                                 pass
