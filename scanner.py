@@ -10,6 +10,20 @@ import threading
 from config import WORKER_URL
 from audio import play_sound, play_audio_file
 
+def _sanitize_task_name(text):
+    """Sanitize task name to prevent prompt injection attacks in AI audio generation."""
+    if not text:
+        return ""
+    if not isinstance(text, str):
+        text = str(text)
+    # Remove control characters, newlines, and potential prompt injection patterns
+    # Keep only printable ASCII and basic punctuation
+    text = ''.join(char for char in text if 32 <= ord(char) <= 126)
+    # Remove quotes that could break out of prompt context
+    text = text.replace('"', '').replace("'", '')
+    # Limit length to prevent prompt stuffing
+    return text[:100]
+
 def _play_multi_speaker_audio_async(task_name, action):
     """
     Asynchronously generate and play multi-speaker task completion audio.
@@ -89,7 +103,10 @@ def scanner_worker():
                                                 response_data = response.json()
                                                 # Extract nested task object from API response
                                                 task_data = response_data.get('task') or {}
-                                                task_name = task_data.get('title') or task_data.get('taskId') or response_data.get('taskId') or 'Unknown Task'
+                                                # Check nested task.title, root title, nested task.taskId, root taskId
+                                                task_name = task_data.get('title') or response_data.get('title') or task_data.get('taskId') or response_data.get('taskId') or 'Unknown Task'
+                                                # Sanitize task name to prevent prompt injection attacks
+                                                task_name = _sanitize_task_name(task_name)
 
                                                 # Start audio generation/playback in background thread
                                                 audio_thread = threading.Thread(

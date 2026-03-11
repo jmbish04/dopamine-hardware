@@ -100,6 +100,20 @@ def _sanitize_escpos_input(text):
     text = re.sub(r'\x1b.', '', text)
     return text[:512]
 
+def _sanitize_task_name(text):
+    """Sanitize task name to prevent prompt injection attacks in AI audio generation."""
+    if not text:
+        return ""
+    if not isinstance(text, str):
+        text = str(text)
+    # Remove control characters, newlines, and potential prompt injection patterns
+    # Keep only printable ASCII and basic punctuation
+    text = ''.join(char for char in text if 32 <= ord(char) <= 126)
+    # Remove quotes that could break out of prompt context
+    text = text.replace('"', '').replace("'", '')
+    # Limit length to prevent prompt stuffing
+    return text[:100]
+
 def _format_timestamp(timestamp):
     if not timestamp:
         return ""
@@ -279,10 +293,10 @@ def scanner_worker():
                                                 resp_json = res.json()
                                                 # Extract nested task object from API response
                                                 task_data = resp_json.get('task') or {}
-                                                if task_data.get('title'):
-                                                    task_title = task_data.get('title')
-                                                elif "title" in resp_json:
-                                                    task_title = resp_json["title"]
+                                                found_name = task_data.get('title') or resp_json.get('title') or task_data.get('taskId') or resp_json.get('taskId')
+                                                if found_name:
+                                                    # Sanitize task name to prevent prompt injection attacks
+                                                    task_title = _sanitize_task_name(found_name)
                                             except Exception:
                                                 pass
                                                 
