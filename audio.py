@@ -72,13 +72,12 @@ def _get_player_status(player):
         if result.returncode == 0:
             # Parse output like: variant       string "Playing"
             for line in result.stdout.split('\n'):
-                if 'string' in line and any(status in line for status in ['Playing', 'Paused', 'Stopped']):
-                    if 'Playing' in line:
-                        return 'Playing'
-                    elif 'Paused' in line:
-                        return 'Paused'
-                    elif 'Stopped' in line:
-                        return 'Stopped'
+                # More robustly parse 'string "Playing"'
+                clean_line = line.strip()
+                if clean_line.startswith('string "'):
+                    status = clean_line.split('"')[1]
+                    if status in ('Playing', 'Paused', 'Stopped'):
+                        return status
         return None
     except Exception as e:
         logger.debug(f"Failed to get player status for {player}: {e}")
