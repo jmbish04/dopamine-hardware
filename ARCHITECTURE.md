@@ -4,6 +4,8 @@
 
 This repository contains a modular Python application that runs on a Raspberry Pi 4, acting as a hardware bridge between physical devices (thermal printer, barcode scanner) and the Onion Tasker Cloudflare Worker.
 
+**Version 2.0** introduces a completely refactored modular structure with all modules organized in the `src/` directory.
+
 ## System Architecture
 
 ### 3-Tier Fallback Communication Protocol
@@ -16,15 +18,21 @@ The bridge maintains three resilient communication channels with the Cloudflare 
 
 2. **Tier 2 (WebSocket)**: Persistent WSS connection for pub/sub broadcasts
    - Background thread maintains connection to Worker's WebSocket endpoint
+   - **NEW**: Application-level heartbeat every 45 seconds to keep Cloudflare tunnel alive
+   - **NEW**: Graceful handling of expected Cloudflare disconnects
    - Automatic reconnection on disconnect
 
 3. **Tier 3 (REST Polling)**: Fallback polling mechanism
    - Background thread polls Worker's `/api/printer/pending` every 15 seconds
    - Ensures no jobs are lost during network outages
 
-## Module Structure
+## Module Structure (v2.0)
 
-### `config.py`
+All modules are now organized under the `src/` directory with clear separation of concerns:
+
+### `src/core/` - Core Utilities
+
+#### `src/core/config.py`
 **Purpose**: Central configuration constants
 **Dependencies**: None
 **Contents**:
@@ -32,7 +40,7 @@ The bridge maintains three resilient communication channels with the Cloudflare 
 - Cloudflare Worker URLs (HTTP, WebSocket)
 - File paths (SQLite database location)
 
-### `core_logger.py`
+#### `src/core/core_logger.py`
 **Purpose**: Logging infrastructure
 **Dependencies**: None
 **Contents**:
@@ -40,25 +48,27 @@ The bridge maintains three resilient communication channels with the Cloudflare 
 - `log_queue`: Thread-safe queue for log entries
 - `setup_logger()`: Initializes console and dual-output logging
 
-### `telemetry.py`
+#### `src/core/telemetry.py`
 **Purpose**: Telemetry collection and transmission
-**Dependencies**: `core_logger`, `config`
+**Dependencies**: `src.core.core_logger`, `src.core.config`
 **Contents**:
 - `telemetry_worker()`: Background thread that:
   - Writes logs to local SQLite database
   - Pushes logs asynchronously to Cloudflare Worker telemetry endpoint
   - Ensures graceful failure if Worker is unreachable
 
-### `audio.py`
+### `src/hardware/` - Hardware Interfaces
+
+#### `src/hardware/audio.py`
 **Purpose**: Audio synthesis and playback
 **Dependencies**: None (system libraries: wave, subprocess)
 **Contents**:
 - `generate_sounds()`: Synthesizes WAV files for UI feedback
 - `play_sound()`: Non-blocking audio playback via `aplay`
 
-### `printer.py`
+#### `src/hardware/printer.py`
 **Purpose**: Thermal printer interface (Epson TM-T20III)
-**Dependencies**: `config`
+**Dependencies**: `src.core.config`
 **Contents**:
 - `get_printer()`: USB printer initialization
 - `print_and_ack()`: Thread-safe printing with job deduplication
@@ -66,42 +76,51 @@ The bridge maintains three resilient communication channels with the Cloudflare 
 - `_sanitize_escpos_input()`: Input validation and sanitization
 - `_format_timestamp()`: Timestamp formatting helper
 
-### `scanner.py`
+#### `src/hardware/scanner.py`
 **Purpose**: Barcode scanner interface (Tera D5100)
-**Dependencies**: `config`, `audio`
+**Dependencies**: `src.core.config`, `src.hardware.audio`
 **Contents**:
 - `scanner_worker()`: Background thread monitoring evdev for barcode scans
 - Supports generic HID keyboard devices
 - Handles scan types (task vs. command) with audio feedback
 
-### `cloud_sync.py`
+### `src/network/` - Network Communication
+
+#### `src/network/cloud_sync.py`
 **Purpose**: Cloudflare Worker communication
-**Dependencies**: `config`, `printer`
+**Dependencies**: `src.core.config`, `src.hardware.printer`
 **Contents**:
 - `run_websocket()`: Maintains persistent WebSocket connection
+  - **NEW**: Application-level heartbeat every 45 seconds
+  - **NEW**: Graceful handling of `WebSocketConnectionClosedException`, `WebSocketTimeoutException`, `ConnectionResetError`
+  - **NEW**: Logs expected disconnects as INFO instead of ERROR
+  - **NEW**: Tracks reconnection count for telemetry
   - Auto-reconnects on disconnect
   - Triggers `print_and_ack()` on incoming jobs
 - `run_rest_polling()`: Fallback polling mechanism
   - Polls every 15 seconds for missed jobs
   - Resilient to temporary network failures
 
-### `api.py`
+### `src/api/` - Flask REST API
+
+#### `src/api/api.py`
 **Purpose**: Flask REST API (VPC endpoints)
-**Dependencies**: `printer`
+**Dependencies**: `src.hardware.printer`
 **Contents**:
 - `POST /print`: Primary print job endpoint
 - `GET|POST /test`: Hardware diagnostic endpoint (prints test receipt)
 - `GET /logs?lines=N`: Returns systemd journal logs
 
-### `ai/` Package
+### `src/ai/` - Cloudflare AI Integration
+
 **Purpose**: Cloudflare AI integration for text generation and TTS
 **Dependencies**: openai, requests
 **Sub-modules**:
-- `ai/config.py`: Configuration and environment helpers
-- `ai/text.py`: Text and structured response generation
-- `ai/speech.py`: Text-to-speech and audio generation
-- `ai/diagnostics.py`: Hardware diagnostics using AI
-- `ai/__init__.py`: Package initialization
+- `src/ai/config.py`: Configuration and environment helpers
+- `src/ai/text.py`: Text and structured response generation
+- `src/ai/speech.py`: Text-to-speech and audio generation
+- `src/ai/diagnostics.py`: Hardware diagnostics using AI
+- `src/ai/__init__.py`: Package initialization
 
 **Key Functions**:
 - `generate_text()`: LLM text generation
@@ -109,6 +128,8 @@ The bridge maintains three resilient communication channels with the Cloudflare 
 - `generate_voice()`: Text-to-speech synthesis
 - `generate_task_completion_audio()`: Task event audio with motivational messages
 - `diagnose_hardware()`: AI-powered hardware configuration analysis
+
+## Main Entry Point
 
 ### `main.py`
 **Purpose**: Application entry point
@@ -118,7 +139,7 @@ The bridge maintains three resilient communication channels with the Cloudflare 
 - Spawns daemon threads for:
   - Telemetry worker
   - Scanner worker
-  - WebSocket connection
+  - WebSocket connection (with heartbeat)
   - REST polling
 - Starts Flask server on `0.0.0.0:8080`
 
@@ -186,44 +207,49 @@ The `printer_lock` (threading.Lock) protects:
 
 ### Why This Structure?
 
-The original monolithic `app.py` combined all functionality in a single 365-line file. This refactoring provides:
+The original monolithic `app.py` combined all functionality in a single 365-line file. Version 2.0 provides:
 
 1. **Separation of Concerns**: Each module has a single, well-defined purpose
-2. **Thread Safety**: Clear boundaries prevent race conditions
-3. **Testability**: Modules can be tested independently
-4. **Maintainability**: Changes to one domain don't affect others
-5. **Resilience**: Failures in one subsystem don't cascade
+2. **Clear Module Hierarchy**: Organized into logical packages (core, hardware, network, api, ai)
+3. **Thread Safety**: Clear boundaries prevent race conditions
+4. **Testability**: Modules can be tested independently
+5. **Maintainability**: Changes to one domain don't affect others
+6. **Resilience**: Failures in one subsystem don't cascade
+7. **WebSocket Stability**: Application-level heartbeats prevent Cloudflare timeouts
 
-### Import Chain
+### Import Chain (v2.0)
 
 ```
-config.py (no dependencies)
-├── core_logger.py (no dependencies)
-│   └── telemetry.py
+src/core/config.py (no dependencies)
+├── src/core/core_logger.py (no dependencies)
+│   └── src/core/telemetry.py
 │       └── main.py
-├── audio.py (no dependencies)
-├── printer.py
-│   ├── cloud_sync.py
+├── src/hardware/audio.py (no dependencies)
+├── src/hardware/printer.py (depends on src.core.config)
+│   ├── src/network/cloud_sync.py
 │   │   └── main.py
-│   └── api.py
+│   └── src/api/api.py
 │       └── main.py
-├── scanner.py (depends on audio)
+├── src/hardware/scanner.py (depends on src.hardware.audio, src.core.config)
 │   └── main.py
-└── ai/ package (no cross-dependencies with hardware)
-    ├── ai/config.py (no dependencies)
-    ├── ai/text.py (depends on ai/config)
-    ├── ai/speech.py (depends on ai/config, ai/text)
-    └── ai/diagnostics.py (depends on ai/text)
+└── src/ai/ package (no cross-dependencies with hardware)
+    ├── src/ai/config.py (no dependencies)
+    ├── src/ai/text.py (depends on src.ai.config)
+    ├── src/ai/speech.py (depends on src.ai.config, src.ai.text)
+    └── src/ai/diagnostics.py (depends on src.ai.text)
 ```
 
 No circular dependencies exist. All modules import cleanly.
 
 ### Legacy Compatibility
 
-The original `app.py` is preserved for reference and rollback purposes.
-The original monolithic `hardware.py` has been split into `audio.py`, `printer.py`, and `scanner.py`.
-The original `worker_ai.py` has been refactored into the `ai/` package for better modularity.
-The systemd service points to `main.py`.
+**Version 2.0** introduces a complete restructure into the `src/` directory:
+- The original `app.py`, `audio.py`, `printer.py`, `scanner.py`, `cloud_sync.py`, `api.py`, `telemetry.py`, `core_logger.py`, `config.py` are preserved in the root for reference
+- New modular structure in `src/` directory with improved imports
+- The original monolithic `hardware.py` was split into `audio.py`, `printer.py`, and `scanner.py`
+- The original `worker_ai.py` was refactored into the `ai/` package
+- `main.py` now uses the modular `src/` imports
+- The systemd service still points to `main.py` (no deployment changes required)
 
 ## Monitoring
 
@@ -246,6 +272,8 @@ telemetry_worker() thread
 - Printer connection status
 - Scanner connection status
 - Network connectivity (via diagnostic endpoint)
+- **WebSocket reconnection count** (v2.0)
+- **Application-level heartbeat status** (v2.0)
 - Job completion acknowledgments
 - Error rates and types
 
