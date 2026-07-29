@@ -7,8 +7,8 @@ import time
 import requests
 import evdev
 import threading
-from config import WORKER_URL
-from audio import play_sound, play_audio_file
+from src.core.config import WORKER_URL
+from src.hardware.audio import play_sound, play_audio_file
 
 def _sanitize_task_name(text):
     """Sanitize task name to prevent prompt injection attacks in AI audio generation."""
@@ -31,7 +31,7 @@ def _play_multi_speaker_audio_async(task_name, action):
     """
     try:
         # Import here to avoid circular dependency issues
-        import ai
+        import src.ai as ai
 
         # Generate two audio files: male confirmation + female motivation
         audio_paths = ai.generate_multi_speaker_task_audio(task_name, action)

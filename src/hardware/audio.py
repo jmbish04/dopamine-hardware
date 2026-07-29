@@ -113,7 +113,7 @@ def play_audio_file(audio_path):
                 subprocess.run(
                     ["aplay", "-D", "plughw:3,0", "-q", audio_path],
                     check=True,
-                    capture_output=False,
+                    capture_output=True,
                     timeout=30
                 )
                 logger.info(f"Played audio: {audio_path}")
