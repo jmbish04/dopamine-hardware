@@ -238,26 +238,27 @@ def play_audio_file(audio_path):
         bool: True if playback succeeded, False otherwise
     """
     with audio_lock:
-        # Pause any active media players before playing audio
-        paused_players = _pause_active_media()
-        if paused_players:
-            logger.info(f"Paused media players for speech: {', '.join(paused_players)}")
-
-        try:
-            if audio_path.lower().endswith('.mp3'):
-                # Pipe ffmpeg stdout (wav data) to aplay stdin
                 ffmpeg_proc = subprocess.Popen(
                     ["ffmpeg", "-v", "quiet", "-i", audio_path, "-f", "wav", "-"],
                     stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE
+                    stderr=subprocess.PIPE  # Capture stderr for error reporting
                 )
-                aplay_proc = subprocess.Popen(
+                subprocess.run(
                     ["aplay", "-D", "plughw:3,0", "-q"],
                     stdin=ffmpeg_proc.stdout,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE
+                    check=True,
+                    capture_output=True,  # Be consistent with WAV path and get stderr on failure
+                    timeout=30
                 )
-
+                # Closing stdout signals to ffmpeg that the consumer is done.
+                ffmpeg_proc.stdout.close()
+                # Wait for ffmpeg and check its return code.
+                return_code = ffmpeg_proc.wait(timeout=5)
+                if return_code != 0:
+                    stderr = ffmpeg_proc.stderr.read().decode('utf-8', errors='ignore')
+                    logger.error(f"ffmpeg failed with code {return_code} for '{audio_path}': {stderr.strip()}")
+                    return False
+                
                 # Close ffmpeg stdout in parent so it receives SIGPIPE if aplay exits early
                 ffmpeg_proc.stdout.close()
 
@@ -276,7 +277,7 @@ def play_audio_file(audio_path):
                 subprocess.run(
                     ["aplay", "-D", "plughw:3,0", "-q", audio_path],
                     check=True,
-                    capture_output=True,
+                    capture_output=False,
                     timeout=30
                 )
                 logger.info(f"Played audio: {audio_path}")

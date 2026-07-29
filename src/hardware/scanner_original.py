@@ -7,7 +7,6 @@ import time
 import requests
 import evdev
 import threading
-import os
 from src.core.config import WORKER_URL
 from src.hardware.audio import play_sound, play_audio_file
 
@@ -44,51 +43,6 @@ def _play_multi_speaker_audio_async(task_name, action):
 
     except Exception as e:
         logging.error(f"Failed to generate/play multi-speaker audio: {e}")
-
-def _handle_generic_barcode_async(barcode):
-    """
-    Asynchronously identify non-Dopamine barcodes using Workers AI.
-    Runs an experimental lookup pipeline and announces findings audibly.
-    """
-    try:
-        import src.ai as ai
-        
-        # 1. Standby Announcement
-        msg1 = "Non-dopamine item scanned; standby while the system attempts to identify the sku or other content."
-        path1 = ai.generate_voice(msg1, f"/tmp/barcode_standby_{barcode}.mp3", speaker="athena")
-        if path1:
-            play_audio_file(path1)
-            try: os.remove(path1)
-            except OSError: pass
-            
-        # 2. Analyzing Announcement
-        msg2 = "Worker AI is analyzing the value now, please hold."
-        path2 = ai.generate_voice(msg2, f"/tmp/barcode_analyzing_{barcode}.mp3", speaker="athena")
-        if path2:
-            play_audio_file(path2)
-            try: os.remove(path2)
-            except OSError: pass
-            
-        # 3. Request AI Identification
-        prompt = f"What specific commercial product corresponds to the UPC/SKU barcode '{barcode}'? If you know the product, reply with a very short description (e.g., 'a 12-ounce can of Coca-Cola'). If you do not know, reply exactly with 'UNKNOWN'."
-        system_prompt = "You are a product database assistant. Be extremely concise. Do not use markdown."
-        
-        identification = ai.generate_text(prompt, system_prompt=system_prompt, temperature=0.2, max_tokens=50)
-        
-        # 4. Result Announcement
-        if identification and "UNKNOWN" not in identification.upper() and identification.strip():
-            final_msg = f"OK, we were able to identify the item. It is {identification.strip()} with SKU number {barcode}."
-        else:
-            final_msg = f"OK, we were not able to identify the item with SKU number {barcode}."
-            
-        path3 = ai.generate_voice(final_msg, f"/tmp/barcode_result_{barcode}.mp3", speaker="athena")
-        if path3:
-            play_audio_file(path3)
-            try: os.remove(path3)
-            except OSError: pass
-            
-    except Exception as e:
-        logging.error(f"Failed to process experimental barcode lookup: {e}")
 
 def scanner_worker():
     """Listens globally for USB barcode scanner keystrokes"""
@@ -131,15 +85,6 @@ def scanner_worker():
                                     elif "DONE" in buffer:
                                         play_sound("done")
                                         action = "completed"
-                                    elif buffer.isdigit() and len(buffer) >= 6:
-                                        # Experimental generic SKU/UPC detection
-                                        threading.Thread(
-                                            target=_handle_generic_barcode_async,
-                                            args=(buffer,),
-                                            daemon=True
-                                        ).start()
-                                        buffer = ""
-                                        continue
                                     else:
                                         play_sound("play") # Default for regular task scans
 
