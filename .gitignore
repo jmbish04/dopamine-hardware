@@ -209,3 +209,4 @@ __marimo__/
 *.wav
 *.mp3
 
+.DS_Store

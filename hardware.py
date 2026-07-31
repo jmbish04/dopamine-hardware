@@ -15,6 +15,19 @@ from datetime import datetime
 from escpos.printer import Usb
 from config import VENDOR_ID, PRODUCT_ID, WORKER_URL
 
+def report_hardware_error(error_msg):
+    try:
+        prompt = f"Please fix the following hardware error on the dopamine bridge:\n\n```\n{error_msg}\n```"
+        payload = {
+            "type": "hardware_error",
+            "message": error_msg,
+            "aiPrompt": prompt,
+            "source": "raspberry_pi_bridge"
+        }
+        requests.post(f"{WORKER_URL}/api/printer/alert", json=payload, timeout=5)
+    except Exception as e:
+        logging.warning(f"Failed to push hardware error to worker: {e}")
+
 # --- Audio Engine ---
 audio_lock = threading.Lock()
 
@@ -35,13 +48,16 @@ def play_audio_file(audio_path):
         return False
     except subprocess.CalledProcessError as e:
         error_msg = e.stderr.decode('utf-8', errors='ignore').strip() if e.stderr else str(e)
-        logging.error(f"Failed to play audio ({cmd[0]} error): {error_msg}")
+        full_msg = f"Failed to play audio ({cmd[0]} error): {error_msg}"
+        logging.error(full_msg)
+        report_hardware_error(full_msg)
         return False
     except subprocess.TimeoutExpired:
         logging.error("Audio playback timed out")
         return False
     except Exception as e:
         logging.error(f"Failed to play audio: {e}")
+        report_hardware_error(f"Failed to play audio: {e}")
         return False
 
 def generate_sounds():
@@ -90,7 +106,9 @@ def get_printer():
     try:
         return Usb(VENDOR_ID, PRODUCT_ID, profile="TM-T20III")
     except Exception as e:
-        logging.error(f"USB Printer error: {repr(e)}")
+        msg = f"USB Printer error: {repr(e)}"
+        logging.error(msg)
+        report_hardware_error(msg)
         return None
 
 def _sanitize_escpos_input(text):
@@ -216,7 +234,9 @@ def print_and_ack(data):
             requests.post(f"{WORKER_URL}/api/printer/ack", json={"job_id": job_id}, timeout=5)
             return True
         except Exception as e:
-            logging.error(f"Print hardware failed: {e}")
+            msg = f"Print hardware failed: {e}"
+            logging.error(msg)
+            report_hardware_error(msg)
             if p:
                 p.close()
             return False
@@ -230,10 +250,18 @@ def scanner_worker():
             time.sleep(3)
 
             devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
-            scanner = next((d for d in devices if "keyboard" in d.name.lower() or "scanner" in d.name.lower() or "tera" in d.name.lower() or "usb adapter" in d.name.lower()), None)
+            
+            # Find the best match, excluding Logitech keyboards/mice which are often used for admin
+            scanner = None
+            for name_match in ["tera", "usb adapter", "scanner", "keyboard"]:
+                scanner = next((d for d in devices if name_match in d.name.lower() and "logitech" not in d.name.lower()), None)
+                if scanner:
+                    break
 
             if not scanner:
-                logging.error("❌ Barcode scanner not found. Retrying in 30s...")
+                msg = "❌ Barcode scanner not found. Retrying in 30s..."
+                logging.error(msg)
+                report_hardware_error(msg)
                 time.sleep(30)
                 continue
 
@@ -302,12 +330,16 @@ def scanner_worker():
                             elif len(keycode) == 1:
                                 buffer += keycode
             except Exception as e:
-                logging.error(f"⚠️ Scanner disconnected: {e}")
+                msg = f"⚠️ Scanner disconnected: {e}"
+                logging.error(msg)
+                report_hardware_error(msg)
                 try:
                     scanner.ungrab()
                 except Exception as ungrab_error:
                     logging.warning(f"Failed to ungrab scanner: {ungrab_error}")
                 time.sleep(5)
         except Exception as e:
-            logging.error(f"Scanner worker error: {e}")
+            msg = f"Scanner worker error: {e}"
+            logging.error(msg)
+            report_hardware_error(msg)
             time.sleep(5)
