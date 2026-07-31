@@ -3,6 +3,8 @@ Description=Dopamine Hardware Bridge
 After=network.target
 
 [Service]
+Environment=CLOUDFLARE_ACCOUNT_ID=
+Environment=CLOUDFLARE_API_TOKEN=
 User=hacolby
 WorkingDirectory=/home/pi/dopamine-hardware
 ExecStart=/home/pi/dopamine-hardware/.venv/bin/python main.py
